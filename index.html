@@ -37,14 +37,14 @@
             content: ''; 
             position: absolute; 
             top: 0; 
-            right: 50%;
+            right: calc(50% - 1px);
             border-top: 2px solid #94a3b8; 
-            width: 50%; 
+            width: calc(50% + 1px); 
             height: 20px;
         }
         .tree-container li::after {
             right: auto; 
-            left: 50%; 
+            left: calc(50% - 1px); 
             border-left: 2px solid #94a3b8;
         }
 
@@ -78,6 +78,30 @@
             transform: translateX(-50%);
         }
 
+        /* Connect husband-wife to parents (upward line, non-root nodes only) */
+        .tree-container ul ul li > div.flex::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 50%;
+            left: 50%;
+            border-left: 2px solid #94a3b8;
+            transform: translateX(-50%);
+            z-index: 0;
+        }
+
+        /* Connect husband-wife to children (downward line, only if node has children) */
+        .tree-container li:has(ul) > div.flex::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            bottom: 0;
+            left: 50%;
+            border-left: 2px solid #94a3b8;
+            transform: translateX(-50%);
+            z-index: 0;
+        }
+
         /* Node card transitions */
         .tree-node-card {
             transition: all 0.2s ease-in-out;
@@ -101,6 +125,52 @@
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background-color: rgba(148, 163, 184, 0.8);
+        }
+
+        /* Multi-root layout */
+        .roots-container {
+            display: flex;
+            gap: 4rem;
+            align-items: flex-start;
+            justify-content: center;
+        }
+
+        /* Smooth transitions for highlight */
+        .tree-container li::before,
+        .tree-container li::after,
+        .tree-container ul ul::before,
+        .tree-container li > div.flex::before,
+        .tree-container li > div.flex::after,
+        .marriage-line,
+        .tree-node-card {
+            transition: all 0.3s ease;
+        }
+
+        /* Highlight specific vertical lineage */
+        .tree-container .highlight-path > div.flex > .direct-relative-card,
+        .tree-container .highlight-node .direct-relative-card {
+            border-color: #3b82f6 !important;
+            background-color: #eff6ff !important;
+        }
+        
+        .tree-container .highlight-path > div.flex::before,
+        .tree-container .highlight-path > div.flex::after,
+        .tree-container .highlight-path > ul::before,
+        .tree-container .highlight-path::before,
+        .tree-container .highlight-path::after {
+            border-color: #3b82f6 !important;
+        }
+
+        .tree-container .highlight-node::before,
+        .tree-container .highlight-node::after,
+        .tree-container .highlight-node > div.flex::before,
+        .tree-container .highlight-node > div.flex::after,
+        .tree-container .highlight-node ul ul::before,
+        .tree-container .highlight-node li::before,
+        .tree-container .highlight-node li::after,
+        .tree-container .highlight-node li > div.flex::before,
+        .tree-container .highlight-node li > div.flex::after {
+            border-color: #3b82f6 !important;
         }
     </style>
 </head>
@@ -171,6 +241,37 @@
         const btnZoomOut = document.getElementById('btn-zoom-out');
         const btnZoomReset = document.getElementById('btn-zoom-reset');
 
+        // Global event listeners for hover highlight on direct lineage (vertical)
+        treeRoot.addEventListener('mouseover', (e) => {
+            const card = e.target.closest('.direct-relative-card');
+            if (card) {
+                const li = card.closest('li');
+                if (li) {
+                    li.classList.add('highlight-node');
+                    let current = li.parentElement.closest('li');
+                    while (current) {
+                        current.classList.add('highlight-path');
+                        current = current.parentElement.closest('li');
+                    }
+                }
+            }
+        });
+        
+        treeRoot.addEventListener('mouseout', (e) => {
+            const card = e.target.closest('.direct-relative-card');
+            if (card) {
+                const li = card.closest('li');
+                if (li) {
+                    li.classList.remove('highlight-node');
+                    let current = li.parentElement.closest('li');
+                    while (current) {
+                        current.classList.remove('highlight-path');
+                        current = current.parentElement.closest('li');
+                    }
+                }
+            }
+        });
+
         // State
         let currentZoom = 1;
 
@@ -195,11 +296,8 @@
             let html = `<li>
                 <div class="flex items-center justify-center relative">
                     <!-- Main Direct Descendant Node -->
-                    <div class="tree-node-card bg-gray-50 border-2 border-blue-300 rounded-xl p-4 shadow-sm min-w-[160px] max-w-[220px] text-center relative z-10">
-                        <!--div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-                            Direct
-                        </div-->
-                        <h3 class="font-bold text-slate-900 text-lg mb-1">${escapeHTML(node.name || "Unknown")}</h3>`;
+                    <div class="tree-node-card direct-relative-card bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-default" title="Hover to highlight lineage">
+                        <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(node.name || "Unknown")}</h3>`;
             
             // Attributes
             if (node.attributes && Object.keys(node.attributes).length > 0) {
@@ -220,16 +318,11 @@
                 node.spouses.forEach((spouse) => {
                     html += `
                         <!-- Marriage Connector Line -->
-                        <div class="h-0.5 w-10 bg-gray-400 relative z-0 flex items-center justify-center shrink-0">
-                            <!--i data-lucide="heart" class="w-4 h-4 text-gray-500 fill-gray-100 absolute bg-slate-50 p-0.5 rounded-full"></i-->
-                        </div>
+                        <div class="marriage-line h-0.5 w-10 bg-slate-400 relative z-0 flex items-center justify-center shrink-0"></div>
                         
                         <!-- Spouse Node -->
-                        <div class="tree-node-card bg-gray-50 border-2 border-gray-300 rounded-xl p-4 shadow-sm min-w-[160px] max-w-[220px] text-center relative z-10">
-                            <!--div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-gray-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-                                Spouse
-                            </div-->
-                            <h3 class="font-bold text-slate-900 text-lg mb-1">${escapeHTML(spouse.name || "Unknown")}</h3>`;
+                        <div class="tree-node-card spouse-card bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-default">
+                            <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(spouse.name || "Unknown")}</h3>`;
                     
                     // Spouse Attributes
                     if (spouse.attributes && Object.keys(spouse.attributes).length > 0) {
@@ -271,12 +364,21 @@
                 
                 const parsed = await response.json();
                 
-                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                    throw new Error("Input must be a valid JSON Object (starting with {), not an array or primitive.");
+                if (!parsed || typeof parsed !== 'object') {
+                    throw new Error("Input must be a valid JSON Object or Array of Objects.");
                 }
                 
+                // Normalize to array for multi-root support
+                const roots = Array.isArray(parsed) ? parsed : [parsed];
+                
+                let rootsHTML = '<div class="roots-container">';
+                roots.forEach(root => {
+                    rootsHTML += `<ul class="family-root m-0 p-0 flex justify-center">${generateNodeHTML(root)}</ul>`;
+                });
+                rootsHTML += '</div>';
+
                 // Build Tree
-                treeRoot.innerHTML = `<ul>${generateNodeHTML(parsed)}</ul>`;
+                treeRoot.innerHTML = rootsHTML;
                 errorOverlay.classList.add('hidden');
 
                 // Crucial: Re-initialize Lucide icons for dynamically injected elements
@@ -339,5 +441,3 @@
     </script>
 </body>
 </html>
-
-
