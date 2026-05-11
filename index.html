@@ -49,12 +49,6 @@
         }
 
         /* Clean up connector lines for edge cases */
-        .tree-container li:only-child::after, .tree-container li:only-child::before {
-            display: none;
-        }
-        .tree-container li:only-child { 
-            padding-top: 0; 
-        }
         .tree-container li:first-child::before, .tree-container li:last-child::after {
             border: 0 none;
         }
@@ -64,6 +58,21 @@
         }
         .tree-container li:first-child::after {
             border-radius: 6px 0 0 0;
+        }
+
+        /* Keep consistent margin for only-child by drawing a direct vertical connector */
+        .tree-container li:only-child::before {
+            display: block;
+            border: 0 none;
+            border-left: 2px solid #94a3b8;
+            border-radius: 0;
+            width: 0;
+            height: 20px;
+            right: auto;
+            left: calc(50% - 1px);
+        }
+        .tree-container li:only-child::after {
+            display: none;
         }
 
         /* Downward line from parent to children */
@@ -196,7 +205,7 @@
     </div>
 
     <!-- Tree Canvas area -->
-    <div class="w-full h-full overflow-auto p-8 custom-scrollbar">
+    <div id="scroll-container" class="w-full h-full overflow-auto p-8 custom-scrollbar cursor-grab">
         <!-- The explicit scale wrapper that prevents scroll clipping -->
         <div id="scale-wrapper" class="mx-auto transition-all duration-200 ease-out" style="width: auto; height: auto;">
             <div 
@@ -236,6 +245,7 @@
         const errorText = document.getElementById('error-text');
         const treeRoot = document.getElementById('tree-root');
         const treeTransform = document.getElementById('tree-transform');
+        const scrollContainer = document.getElementById('scroll-container');
         
         const btnZoomIn = document.getElementById('btn-zoom-in');
         const btnZoomOut = document.getElementById('btn-zoom-out');
@@ -433,6 +443,47 @@
         btnZoomReset.addEventListener('click', () => {
             currentZoom = 1;
             updateZoomStyle();
+        });
+
+        // Drag to scroll functionality
+        let isDragging = false;
+        let startX, startY, initialScrollLeft, initialScrollTop;
+
+        scrollContainer.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // Only allow left click
+            isDragging = true;
+            scrollContainer.classList.add('cursor-grabbing');
+            scrollContainer.classList.remove('cursor-grab');
+            scrollContainer.style.userSelect = 'none'; // Prevent text selection while dragging
+            
+            startX = e.pageX - scrollContainer.offsetLeft;
+            startY = e.pageY - scrollContainer.offsetTop;
+            initialScrollLeft = scrollContainer.scrollLeft;
+            initialScrollTop = scrollContainer.scrollTop;
+        });
+
+        const stopDragging = () => {
+            isDragging = false;
+            scrollContainer.classList.remove('cursor-grabbing');
+            scrollContainer.classList.add('cursor-grab');
+            scrollContainer.style.userSelect = '';
+        };
+
+        scrollContainer.addEventListener('mouseleave', stopDragging);
+        scrollContainer.addEventListener('mouseup', stopDragging);
+
+        scrollContainer.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault(); // Prevent default browser drag behavior
+            
+            const x = e.pageX - scrollContainer.offsetLeft;
+            const y = e.pageY - scrollContainer.offsetTop;
+            const walkX = x - startX;
+            const walkY = y - startY;
+            
+            // Adjust the scroll position
+            scrollContainer.scrollLeft = initialScrollLeft - walkX;
+            scrollContainer.scrollTop = initialScrollTop - walkY;
         });
 
         // Initial Execution
