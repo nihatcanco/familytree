@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Family Tree Viewer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons via reliable CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+
+    <style>
+        /* --- CSS for the Tree Layout --- */
+        .tree-container {
+            display: inline-block;
+            /* Removed min-width: 100% to allow exact unscaled width calculations */
+        }
+        .tree-container ul {
+            padding-top: 20px; 
+            position: relative;
+            display: flex; 
+            justify-content: center;
+            padding-left: 0;
+        }
+        .tree-container li {
+            text-align: center; 
+            list-style-type: none;
+            position: relative; 
+            padding: 20px 10px 0 10px;
+            display: flex; 
+            flex-direction: column; 
+            align-items: center;
+        }
+
+        /* Connector lines */
+        .tree-container li::before, .tree-container li::after {
+            content: ''; 
+            position: absolute; 
+            top: 0; 
+            right: 50%;
+            border-top: 2px solid #94a3b8; 
+            width: 50%; 
+            height: 20px;
+        }
+        .tree-container li::after {
+            right: auto; 
+            left: 50%; 
+            border-left: 2px solid #94a3b8;
+        }
+
+        /* Clean up connector lines for edge cases */
+        .tree-container li:only-child::after, .tree-container li:only-child::before {
+            display: none;
+        }
+        .tree-container li:only-child { 
+            padding-top: 0; 
+        }
+        .tree-container li:first-child::before, .tree-container li:last-child::after {
+            border: 0 none;
+        }
+        .tree-container li:last-child::before {
+            border-right: 2px solid #94a3b8; 
+            border-radius: 0 6px 0 0;
+        }
+        .tree-container li:first-child::after {
+            border-radius: 6px 0 0 0;
+        }
+
+        /* Downward line from parent to children */
+        .tree-container ul ul::before {
+            content: ''; 
+            position: absolute; 
+            top: 0; 
+            left: 50%;
+            border-left: 2px solid #94a3b8; 
+            width: 0; 
+            height: 20px;
+            transform: translateX(-50%);
+        }
+
+        /* Node card transitions */
+        .tree-node-card {
+            transition: all 0.2s ease-in-out;
+        }
+        .tree-node-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        }
+
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: rgba(148, 163, 184, 0.4);
+            border-radius: 20px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background-color: rgba(148, 163, 184, 0.8);
+        }
+    </style>
+</head>
+<body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
+
+    <!-- Error Overlay -->
+    <div id="error-overlay" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-red-50 text-red-600 px-6 py-4 rounded-xl shadow-lg border border-red-200 flex items-center gap-3 max-w-2xl">
+        <i data-lucide="alert-circle" class="w-5 h-5 flex-shrink-0"></i>
+        <span id="error-text" class="break-words w-full text-sm font-medium"></span>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="absolute top-4 right-4 z-20 flex bg-white rounded-lg shadow-md border border-slate-200 overflow-hidden items-center">
+        <button id="btn-zoom-out" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer" title="Zoom Out">
+            <i data-lucide="zoom-out" class="w-5 h-5"></i>
+        </button>
+        <button id="btn-zoom-reset" class="p-2 hover:bg-slate-100 text-slate-600 border-x border-slate-200 transition-colors cursor-pointer" title="Reset Zoom">
+            <i data-lucide="maximize" class="w-5 h-5"></i>
+        </button>
+        <button id="btn-zoom-in" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer" title="Zoom In">
+            <i data-lucide="zoom-in" class="w-5 h-5"></i>
+        </button>
+    </div>
+
+    <!-- Tree Canvas area -->
+    <div class="w-full h-full overflow-auto p-8 custom-scrollbar">
+        <!-- The explicit scale wrapper that prevents scroll clipping -->
+        <div id="scale-wrapper" class="mx-auto transition-all duration-200 ease-out" style="width: auto; height: auto;">
+            <div 
+                id="tree-transform"
+                class="tree-container transition-transform duration-200 ease-out"
+                style="transform-origin: top left; transform: scale(1);"
+            >
+                <div id="tree-root" class="w-max mx-auto">
+                    <!-- Tree will be rendered here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        
+        // Setup global error handling so you don't have to check the console
+        window.onerror = function(message, source, lineno, colno, error) {
+            const errDiv = document.getElementById('error-overlay');
+            const errTxt = document.getElementById('error-text');
+            if(errDiv && errTxt) {
+                errDiv.classList.remove('hidden');
+                errTxt.textContent = `System Error: ${message}`;
+            }
+            return false; 
+        };
+
+        // Check if Lucide loaded correctly from the CDN
+        if (typeof lucide === 'undefined') {
+            throw new Error("Lucide Icons CDN failed to load. Please check your network or adblocker.");
+        }
+
+        // DOM Elements
+        const errorOverlay = document.getElementById('error-overlay');
+        const errorText = document.getElementById('error-text');
+        const treeRoot = document.getElementById('tree-root');
+        const treeTransform = document.getElementById('tree-transform');
+        
+        const btnZoomIn = document.getElementById('btn-zoom-in');
+        const btnZoomOut = document.getElementById('btn-zoom-out');
+        const btnZoomReset = document.getElementById('btn-zoom-reset');
+
+        // State
+        let currentZoom = 1;
+
+        // Initialize Lucide Icons on load
+        lucide.createIcons();
+
+        // Utility: Escape HTML to prevent XSS and rendering issues
+        function escapeHTML(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // Generate HTML for a single node recursively
+        function generateNodeHTML(node) {
+            if (!node || typeof node !== 'object') return '';
+
+            let html = `<li>
+                <div class="flex items-center justify-center relative">
+                    <!-- Main Direct Descendant Node -->
+                    <div class="tree-node-card bg-gray-50 border-2 border-blue-300 rounded-xl p-4 shadow-sm min-w-[160px] max-w-[220px] text-center relative z-10">
+                        <!--div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                            Direct
+                        </div-->
+                        <h3 class="font-bold text-slate-900 text-lg mb-1">${escapeHTML(node.name || "Unknown")}</h3>`;
+            
+            // Attributes
+            if (node.attributes && Object.keys(node.attributes).length > 0) {
+                html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
+                for (const [key, value] of Object.entries(node.attributes)) {
+                    html += `
+                        <div class="bg-white/70 px-2 py-1 rounded-md text-left overflow-hidden text-ellipsis whitespace-nowrap" title="${escapeHTML(key)}: ${escapeHTML(value)}">
+                            <span class="font-semibold text-slate-800 capitalize">${escapeHTML(key)}:</span> ${escapeHTML(value)}
+                        </div>`;
+                }
+                html += `</div>`;
+            }
+            
+            html += `</div>`; // Close Main Node
+
+            // Spouses
+            if (node.spouses && Array.isArray(node.spouses)) {
+                node.spouses.forEach((spouse) => {
+                    html += `
+                        <!-- Marriage Connector Line -->
+                        <div class="h-0.5 w-10 bg-gray-400 relative z-0 flex items-center justify-center shrink-0">
+                            <!--i data-lucide="heart" class="w-4 h-4 text-gray-500 fill-gray-100 absolute bg-slate-50 p-0.5 rounded-full"></i-->
+                        </div>
+                        
+                        <!-- Spouse Node -->
+                        <div class="tree-node-card bg-gray-50 border-2 border-gray-300 rounded-xl p-4 shadow-sm min-w-[160px] max-w-[220px] text-center relative z-10">
+                            <!--div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-gray-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                                Spouse
+                            </div-->
+                            <h3 class="font-bold text-slate-900 text-lg mb-1">${escapeHTML(spouse.name || "Unknown")}</h3>`;
+                    
+                    // Spouse Attributes
+                    if (spouse.attributes && Object.keys(spouse.attributes).length > 0) {
+                        html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
+                        for (const [key, value] of Object.entries(spouse.attributes)) {
+                            html += `
+                                <div class="bg-white/70 px-2 py-1 rounded-md text-left overflow-hidden text-ellipsis whitespace-nowrap" title="${escapeHTML(key)}: ${escapeHTML(value)}">
+                                    <span class="font-semibold text-slate-800 capitalize">${escapeHTML(key)}:</span> ${escapeHTML(value)}
+                                </div>`;
+                        }
+                        html += `</div>`;
+                    }
+                    html += `</div>`; // Close Spouse Node
+                });
+            }
+
+            html += `</div>`; // Close flex container for node + spouses
+
+            // Children Recursive Call
+            if (node.children && Array.isArray(node.children) && node.children.length > 0) {
+                html += `<ul>`;
+                node.children.forEach((child) => {
+                    html += generateNodeHTML(child);
+                });
+                html += `</ul>`;
+            }
+
+            html += `</li>`;
+            return html;
+        }
+
+        // Fetch Data and Render Tree Logic
+        async function loadAndRenderTree() {
+            try {
+                const response = await fetch('data.json');
+                if (!response.ok) {
+                    throw new Error(`Failed to load data.json (${response.status}: ${response.statusText}). Note: Browsers block fetch requests on the file:// protocol. Please serve this folder using a local web server.`);
+                }
+                
+                const parsed = await response.json();
+                
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    throw new Error("Input must be a valid JSON Object (starting with {), not an array or primitive.");
+                }
+                
+                // Build Tree
+                treeRoot.innerHTML = `<ul>${generateNodeHTML(parsed)}</ul>`;
+                errorOverlay.classList.add('hidden');
+
+                // Crucial: Re-initialize Lucide icons for dynamically injected elements
+                lucide.createIcons();
+
+                // Call update on initial render to calculate base physical bounds
+                updateZoomStyle();
+
+            } catch (err) {
+                errorText.textContent = err.message;
+                errorOverlay.classList.remove('hidden');
+                
+                // Show error state in the tree area
+                treeRoot.innerHTML = `
+                    <div class="text-slate-400 flex flex-col items-center mt-20">
+                        <i data-lucide="alert-circle" class="w-12 h-12 mb-4 opacity-20"></i>
+                        <p>No valid tree data to display.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+        }
+
+        // Zoom Functions
+        function updateZoomStyle() {
+            treeTransform.style.transform = `scale(${currentZoom})`;
+            
+            // Calculate and explicitly set the wrapper's physical dimensions.
+            // This forces the scrollbars to recognize the new scaled size, completely preventing clipping!
+            setTimeout(() => {
+                const unscaledWidth = treeTransform.offsetWidth;
+                const unscaledHeight = treeTransform.offsetHeight;
+                
+                const wrapper = document.getElementById('scale-wrapper');
+                if (wrapper) {
+                    wrapper.style.width = `${unscaledWidth * currentZoom}px`;
+                    wrapper.style.height = `${unscaledHeight * currentZoom}px`;
+                }
+            }, 0);
+        }
+
+        btnZoomIn.addEventListener('click', () => {
+            currentZoom = Math.min(currentZoom + 0.2, 2);
+            updateZoomStyle();
+        });
+
+        btnZoomOut.addEventListener('click', () => {
+            currentZoom = Math.max(currentZoom - 0.2, 0.4);
+            updateZoomStyle();
+        });
+
+        btnZoomReset.addEventListener('click', () => {
+            currentZoom = 1;
+            updateZoomStyle();
+        });
+
+        // Initial Execution
+        loadAndRenderTree();
+    });
+    </script>
+</body>
+</html>
+
+
