@@ -104,13 +104,9 @@
             border-color: #3b82f6; /* Tailwind blue-500 */
             box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
         }
-        .tree-node-card.highlighted-ancestor {
-            border-color: #10b981; /* Tailwind emerald-500 */
-            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.3);
-        }
-        .tree-node-card.highlighted-descendant {
-            border-color: #f59e0b; /* Tailwind amber-500 */
-            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.3);
+        .tree-node-card.highlighted-gen {
+            border-color: var(--highlight-color);
+            box-shadow: var(--highlight-shadow);
         }
 
         /* Custom Scrollbar */
@@ -238,8 +234,10 @@
             const cardClass = isSpouse ? 'spouse-card' : 'direct-relative-card';
             const personIdAttr = person.id ? `data-id="${person.id}"` : '';
             const parentIdsAttr = (person._parentIds && person._parentIds.length > 0) ? `data-parent-ids="${person._parentIds.join(',')}"` : '';
+            const genAttr = person._generation ? `data-generation="${person._generation}"` : '';
+
             
-            let html = `<div ${personIdAttr} ${parentIdsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer">
+            let html = `<div ${personIdAttr} ${parentIdsAttr} ${genAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer">
                 <div class="text-[10px] text-slate-400 font-mono uppercase tracking-wider mb-1">ID: ${escapeHTML(person.id)}</div>
                 <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(person.name || "Unknown")}</h3>`;
             
@@ -382,7 +380,7 @@
                 }
             });
 
-            function buildNode(nodeId, asSpouse = false) {
+            function buildNode(nodeId, asSpouse = false, depth = 1) {
                 const node = nodeMap.get(Number(nodeId));
                 if (!node) return null;
                 
@@ -393,6 +391,7 @@
                 const result = { 
                     id: node.id,
                     _parentIds: node._parentIds,
+                    _generation: depth,
                     name: node.name, 
                     attributes: { ...node.attributes }, 
                     children: [], 
@@ -403,7 +402,7 @@
                 nodeMap.forEach(potentialChild => {
                     if (potentialChild._parentIds.map(Number).includes(Number(node.id)) && !potentialChild._addedAsChild) {
                         potentialChild._addedAsChild = true;
-                        const childNode = buildNode(potentialChild.id);
+                        const childNode = buildNode(potentialChild.id, false, depth + 1);
                         if (childNode) result.children.push(childNode);
                     }
                 });
@@ -411,14 +410,14 @@
                 // 2. Attach spouses
                 if (!asSpouse) {
                     node._spouseIds.forEach(spouseId => {
-                        const spouseNode = buildNode(spouseId, true);
+                        const spouseNode = buildNode(spouseId, true, depth);
                         if (spouseNode) result.spouses.push(spouseNode);
                     });
                 }
                 return result;
             }
 
-            return roots.map(root => buildNode(root.id)).filter(Boolean);
+            return roots.map(root => buildNode(root.id, false, 1)).filter(Boolean);
         }
 
         // Fetch Data and Render Tree Logic
@@ -650,8 +649,10 @@
             const isAlreadyHighlighted = card.classList.contains('highlighted');
             
             // Clear previous highlights
-            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-ancestor, .tree-node-card.highlighted-descendant').forEach(el => {
-                el.classList.remove('highlighted', 'highlighted-ancestor', 'highlighted-descendant');
+            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen').forEach(el => {
+                el.classList.remove('highlighted', 'highlighted-gen');
+                el.style.removeProperty('--highlight-color');
+                el.style.removeProperty('--highlight-shadow');
             });
             
             // Highlight logic (toggles off if clicking the currently highlighted card)
@@ -668,14 +669,44 @@
                     });
                 });
 
+                // 15 birbirinden tamamen farklı ve zıt renk.
+                // Atalar ve çocuklar aynı mesafe için aynı rengi kullanacak (tutarlılık için).
+                // Modulo (%) operatörü ile 15'ten derin ağaçlarda başa sararak sınırsız derinlik destekler.
+                const generationColors = [
+                    { hex: '#ef4444', rgba: 'rgba(239, 68, 68, 0.3)' },   // 1: Kırmızı
+                    { hex: '#3b82f6', rgba: 'rgba(59, 130, 246, 0.3)' },  // 2: Mavi
+                    { hex: '#22c55e', rgba: 'rgba(34, 197, 94, 0.3)' },   // 3: Yeşil
+                    { hex: '#f97316', rgba: 'rgba(249, 115, 22, 0.3)' },  // 4: Turuncu
+                    { hex: '#a855f7', rgba: 'rgba(168, 85, 247, 0.3)' },  // 5: Mor
+                    { hex: '#06b6d4', rgba: 'rgba(6, 182, 212, 0.3)' },   // 6: Camgöbeği
+                    { hex: '#eab308', rgba: 'rgba(234, 179, 8, 0.3)' },   // 7: Sarı
+                    { hex: '#ec4899', rgba: 'rgba(236, 72, 153, 0.3)' },  // 8: Pembe
+                    { hex: '#84cc16', rgba: 'rgba(132, 204, 22, 0.3)' },  // 9: Limon Yeşili
+                    { hex: '#6366f1', rgba: 'rgba(99, 102, 241, 0.3)' },  // 10: Çivit Mavisi
+                    { hex: '#14b8a6', rgba: 'rgba(20, 184, 166, 0.3)' },  // 11: Turkuaz
+                    { hex: '#f43f5e', rgba: 'rgba(244, 63, 94, 0.3)' },   // 12: Gül Rengi
+                    { hex: '#f59e0b', rgba: 'rgba(245, 158, 11, 0.3)' },  // 13: Kehribar
+                    { hex: '#10b981', rgba: 'rgba(16, 185, 129, 0.3)' },  // 14: Zümrüt
+                    { hex: '#64748b', rgba: 'rgba(100, 116, 139, 0.3)' }  // 15: Arduvaz (Gri-Mavi)
+                ];
+
+                function applyHighlightGen(element) {
+                    const gen = parseInt(element.getAttribute('data-generation')) || 1;
+                    const colorObj = generationColors[(gen - 1) % generationColors.length];
+                    
+                    element.classList.add('highlighted-gen');
+                    element.style.setProperty('--highlight-color', colorObj.hex);
+                    element.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
+                }
+
                 // Recursive function to highlight ancestors
                 function highlightAncestors(currentCard) {
                     const parentIdsAttr = currentCard.getAttribute('data-parent-ids');
                     if (parentIdsAttr) {
                         parentIdsAttr.split(',').forEach(pid => {
                             document.querySelectorAll(`.tree-node-card[data-id="${pid}"]`).forEach(parentCard => {
-                                if (!parentCard.classList.contains('highlighted-ancestor')) {
-                                    parentCard.classList.add('highlighted-ancestor');
+                                if (!parentCard.classList.contains('highlighted-gen')) {
+                                    applyHighlightGen(parentCard);
                                     highlightAncestors(parentCard);
                                 }
                             });
@@ -689,13 +720,14 @@
                     if (!currentId || !childMap[currentId]) return;
                     
                     childMap[currentId].forEach(childCard => {
-                        if (!childCard.classList.contains('highlighted-descendant')) {
-                            childCard.classList.add('highlighted-descendant');
+                        if (!childCard.classList.contains('highlighted-gen')) {
+                            applyHighlightGen(childCard);
                             highlightDescendants(childCard);
                         }
                     });
                 }
                 
+                applyHighlightGen(card);
                 highlightAncestors(card);
                 highlightDescendants(card);
             }
