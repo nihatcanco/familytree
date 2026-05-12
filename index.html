@@ -156,6 +156,20 @@
         </button>
     </div>
 
+    <!-- Generation Color Legend -->
+    <div id="generation-legend" class="absolute top-[72px] right-4 z-20 bg-white/95 backdrop-blur rounded-lg shadow-md border border-slate-200 p-3 hidden flex-col w-[140px]">
+        <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center">
+            <span>Renkler</span>
+            <i data-lucide="palette" class="w-3.5 h-3.5 text-slate-400"></i>
+        </div>
+        <div id="legend-list" class="flex flex-col gap-2 text-xs text-slate-600">
+            <!-- Populated by JS -->
+        </div>
+        <div id="legend-note" class="mt-2 pt-2 border-t border-slate-200 text-[10px] text-slate-400 text-center italic hidden">
+            16+ başa döner
+        </div>
+    </div>
+
     <!-- Tree Canvas area -->
     <div id="scroll-container" class="w-full h-full overflow-auto p-8 custom-scrollbar cursor-grab">
         <!-- The explicit scale wrapper that prevents scroll clipping -->
@@ -203,6 +217,9 @@
         const btnZoomOut = document.getElementById('btn-zoom-out');
         const btnZoomReset = document.getElementById('btn-zoom-reset');
 
+        const generationLegend = document.getElementById('generation-legend');
+        const legendList = document.getElementById('legend-list');
+
         // State
         let currentZoom = 1;
 
@@ -219,6 +236,26 @@
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
         }
+
+        // 15 birbirinden tamamen farklı ve zıt renk. (Global Scope)
+        // Modulo (%) operatörü ile 15'ten derin ağaçlarda başa sararak sınırsız derinlik destekler.
+        const generationColors = [
+            { hex: '#ef4444', rgba: 'rgba(239, 68, 68, 0.3)' },   // 1: Kırmızı
+            { hex: '#3b82f6', rgba: 'rgba(59, 130, 246, 0.3)' },  // 2: Mavi
+            { hex: '#22c55e', rgba: 'rgba(34, 197, 94, 0.3)' },   // 3: Yeşil
+            { hex: '#f97316', rgba: 'rgba(249, 115, 22, 0.3)' },  // 4: Turuncu
+            { hex: '#a855f7', rgba: 'rgba(168, 85, 247, 0.3)' },  // 5: Mor
+            { hex: '#06b6d4', rgba: 'rgba(6, 182, 212, 0.3)' },   // 6: Camgöbeği
+            { hex: '#eab308', rgba: 'rgba(234, 179, 8, 0.3)' },   // 7: Sarı
+            { hex: '#ec4899', rgba: 'rgba(236, 72, 153, 0.3)' },  // 8: Pembe
+            { hex: '#84cc16', rgba: 'rgba(132, 204, 22, 0.3)' },  // 9: Limon Yeşili
+            { hex: '#6366f1', rgba: 'rgba(99, 102, 241, 0.3)' },  // 10: Çivit Mavisi
+            { hex: '#14b8a6', rgba: 'rgba(20, 184, 166, 0.3)' },  // 11: Turkuaz
+            { hex: '#f43f5e', rgba: 'rgba(244, 63, 94, 0.3)' },   // 12: Gül Rengi
+            { hex: '#f59e0b', rgba: 'rgba(245, 158, 11, 0.3)' },  // 13: Kehribar
+            { hex: '#10b981', rgba: 'rgba(16, 185, 129, 0.3)' },  // 14: Zümrüt
+            { hex: '#64748b', rgba: 'rgba(100, 116, 139, 0.3)' }  // 15: Arduvaz (Gri-Mavi)
+        ];
 
         // Utility: Parse ID lists safely
         function parseIds(value) {
@@ -495,6 +532,33 @@
                 treeRoot.innerHTML = rootsHTML;
                 errorOverlay.classList.add('hidden');
 
+                // Show generation legend
+                generationLegend.classList.remove('hidden');
+                generationLegend.classList.add('flex');
+
+                // Dynamically populate Color Legend based on actual generations in the tree
+                let maxGen = 1;
+                document.querySelectorAll('.tree-node-card[data-generation]').forEach(card => {
+                    const gen = parseInt(card.getAttribute('data-generation')) || 1;
+                    if (gen > maxGen) maxGen = gen;
+                });
+                
+                legendList.innerHTML = '';
+                for (let i = 1; i <= maxGen; i++) {
+                    const color = generationColors[(i - 1) % generationColors.length];
+                    legendList.innerHTML += `
+                        <div class="flex items-center gap-2 p-1.5 -mx-1.5 rounded-md cursor-pointer hover:bg-slate-100 transition-colors legend-item" data-gen="${i}" title="Bu jenerasyondaki herkesi vurgula">
+                            <div class="w-3 h-3 rounded-full flex-shrink-0 border border-slate-200 shadow-sm" style="background-color: ${color.hex}"></div>
+                            <span class="truncate">${i}. Nesil</span>
+                        </div>`;
+                }
+                
+                const legendNote = document.getElementById('legend-note');
+                if (legendNote) {
+                    if (maxGen > 15) legendNote.classList.remove('hidden');
+                    else legendNote.classList.add('hidden');
+                }
+
                 // Calculate vertical line heights for perfect marriage line connections
                 document.querySelectorAll('.generation-wrapper').forEach(wrapper => {
                     const card = wrapper.querySelector('.tree-node-card');
@@ -655,6 +719,11 @@
                 el.style.removeProperty('--highlight-shadow');
             });
             
+            // Menüdeki (legend) aktif seçimi de temizle
+            document.querySelectorAll('.legend-item').forEach(el => {
+                el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
+            });
+            
             // Highlight logic (toggles off if clicking the currently highlighted card)
             if (!isAlreadyHighlighted) {
                 card.classList.add('highlighted');
@@ -668,27 +737,6 @@
                         childMap[pid].push(el);
                     });
                 });
-
-                // 15 birbirinden tamamen farklı ve zıt renk.
-                // Atalar ve çocuklar aynı mesafe için aynı rengi kullanacak (tutarlılık için).
-                // Modulo (%) operatörü ile 15'ten derin ağaçlarda başa sararak sınırsız derinlik destekler.
-                const generationColors = [
-                    { hex: '#ef4444', rgba: 'rgba(239, 68, 68, 0.3)' },   // 1: Kırmızı
-                    { hex: '#3b82f6', rgba: 'rgba(59, 130, 246, 0.3)' },  // 2: Mavi
-                    { hex: '#22c55e', rgba: 'rgba(34, 197, 94, 0.3)' },   // 3: Yeşil
-                    { hex: '#f97316', rgba: 'rgba(249, 115, 22, 0.3)' },  // 4: Turuncu
-                    { hex: '#a855f7', rgba: 'rgba(168, 85, 247, 0.3)' },  // 5: Mor
-                    { hex: '#06b6d4', rgba: 'rgba(6, 182, 212, 0.3)' },   // 6: Camgöbeği
-                    { hex: '#eab308', rgba: 'rgba(234, 179, 8, 0.3)' },   // 7: Sarı
-                    { hex: '#ec4899', rgba: 'rgba(236, 72, 153, 0.3)' },  // 8: Pembe
-                    { hex: '#84cc16', rgba: 'rgba(132, 204, 22, 0.3)' },  // 9: Limon Yeşili
-                    { hex: '#6366f1', rgba: 'rgba(99, 102, 241, 0.3)' },  // 10: Çivit Mavisi
-                    { hex: '#14b8a6', rgba: 'rgba(20, 184, 166, 0.3)' },  // 11: Turkuaz
-                    { hex: '#f43f5e', rgba: 'rgba(244, 63, 94, 0.3)' },   // 12: Gül Rengi
-                    { hex: '#f59e0b', rgba: 'rgba(245, 158, 11, 0.3)' },  // 13: Kehribar
-                    { hex: '#10b981', rgba: 'rgba(16, 185, 129, 0.3)' },  // 14: Zümrüt
-                    { hex: '#64748b', rgba: 'rgba(100, 116, 139, 0.3)' }  // 15: Arduvaz (Gri-Mavi)
-                ];
 
                 function applyHighlightGen(element) {
                     const gen = parseInt(element.getAttribute('data-generation')) || 1;
@@ -730,6 +778,37 @@
                 applyHighlightGen(card);
                 highlightAncestors(card);
                 highlightDescendants(card);
+            }
+        });
+
+        // Renk (Legend) listesinden jenerasyon seçilince tüm grubu vurgulama
+        legendList.addEventListener('click', (e) => {
+            const item = e.target.closest('.legend-item');
+            if (!item) return;
+            
+            const targetGen = item.getAttribute('data-gen');
+            const isActive = item.classList.contains('active-legend');
+            
+            // Hem ağaçtaki hem de menüdeki mevcut vurguları temizle
+            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen').forEach(el => {
+                el.classList.remove('highlighted', 'highlighted-gen');
+                el.style.removeProperty('--highlight-color');
+                el.style.removeProperty('--highlight-shadow');
+            });
+            document.querySelectorAll('.legend-item').forEach(el => {
+                el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
+            });
+            
+            // Eğer daha önceden aktif değilse, listeyi aktif yap ve ilgili jenerasyonu vurgula
+            if (!isActive) {
+                item.classList.add('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
+                
+                document.querySelectorAll(`.tree-node-card[data-generation="${targetGen}"]`).forEach(card => {
+                    const colorObj = generationColors[(parseInt(targetGen) - 1) % generationColors.length];
+                    card.classList.add('highlighted-gen');
+                    card.style.setProperty('--highlight-color', colorObj.hex);
+                    card.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
+                });
             }
         });
 
