@@ -163,10 +163,10 @@
     <!-- Tree Canvas area -->
     <div id="scroll-container" class="w-full h-full overflow-auto p-8 custom-scrollbar cursor-grab">
         <!-- The explicit scale wrapper that prevents scroll clipping -->
-        <div id="scale-wrapper" class="mx-auto transition-all duration-200 ease-out" style="width: auto; height: auto;">
+        <div id="scale-wrapper" class="mx-auto relative" style="width: auto; height: auto;">
             <div 
                 id="tree-transform"
-                class="tree-container transition-transform duration-200 ease-out"
+                class="tree-container absolute top-0 left-0 w-max"
                 style="transform-origin: top left; transform: scale(1);"
             >
                 <div id="tree-root" class="w-max mx-auto">
@@ -240,15 +240,23 @@
             const parentIdsAttr = (person._parentIds && person._parentIds.length > 0) ? `data-parent-ids="${person._parentIds.join(',')}"` : '';
             
             let html = `<div ${personIdAttr} ${parentIdsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer">
+                <div class="text-[10px] text-slate-400 font-mono uppercase tracking-wider mb-1">ID: ${escapeHTML(person.id)}</div>
                 <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(person.name || "Unknown")}</h3>`;
             
             if (person.attributes && Object.keys(person.attributes).length > 0) {
                 html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
                 for (const [key, value] of Object.entries(person.attributes)) {
-                    html += `
-                        <div class="bg-white/70 px-2 py-1 rounded-md text-left overflow-hidden text-ellipsis whitespace-nowrap" title="${escapeHTML(key)}: ${escapeHTML(value)}">
-                            <span class="font-semibold text-slate-800 capitalize">${escapeHTML(key)}:</span> ${escapeHTML(value)}
-                        </div>`;
+                    if (key === 'note') {
+                        html += `
+                            <div class="bg-amber-50 px-2 py-1.5 rounded-md text-left whitespace-normal break-words mt-1 border border-amber-100">
+                                <span class="font-semibold text-slate-800 capitalize">${escapeHTML(key)}:</span> ${escapeHTML(value)}
+                            </div>`;
+                    } else {
+                        html += `
+                            <div class="bg-white/70 px-2 py-1 rounded-md text-left overflow-hidden text-ellipsis whitespace-nowrap" title="${escapeHTML(key)}: ${escapeHTML(value)}">
+                                <span class="font-semibold text-slate-800 capitalize">${escapeHTML(key)}:</span> ${escapeHTML(value)}
+                            </div>`;
+                    }
                 }
                 html += `</div>`;
             }
@@ -348,7 +356,7 @@
                 node._spouseIds = parseIds(row.spouseIds);
                 
                 if (row.surname) node.attributes.surname = row.surname;
-                if (row.maiden_name) node.attributes['maiden name'] = row.maiden_name;
+                if (row.birthplace) node.attributes.birthplace = row.birthplace;
                 if (row.birthdate) node.attributes.birthdate = row.birthdate;
                 if (row.gender === 1) node.attributes.gender = 'Male';
                 if (row.gender === 2) node.attributes.gender = 'Female';
@@ -422,7 +430,8 @@
                 });
 
                 const dbFileName = 'data.sqlite';
-                const response = await fetch(dbFileName);
+                // Add a cache-busting timestamp to prevent the browser from serving a stale cached file
+                const response = await fetch(`${dbFileName}?t=${Date.now()}`);
                 if (!response.ok) {
                     throw new Error(`Failed to load ${dbFileName} (${response.status}: ${response.statusText}). Note: Browsers block fetch requests on the file:// protocol. Please serve this folder using a local web server.`);
                 }
@@ -432,14 +441,42 @@
                 const db = new SQL.Database(new Uint8Array(buffer));
 
                 // Query the database
-                const stmt = db.prepare("SELECT * FROM FamilyTree");
-                const parsed = [];
-                while (stmt.step()) {
-                    parsed.push(stmt.getAsObject());
+                const peopleStmt = db.prepare("SELECT * FROM People");
+                const people = [];
+                while (peopleStmt.step()) {
+                    people.push(peopleStmt.getAsObject());
                 }
-                stmt.free();
+                peopleStmt.free();
+
+                const spousesStmt = db.prepare("SELECT * FROM Spouses");
+                const spouses = [];
+                while (spousesStmt.step()) {
+                    spouses.push(spousesStmt.getAsObject());
+                }
+                spousesStmt.free();
+
+                const parentsStmt = db.prepare("SELECT * FROM Parents");
+                const parents = [];
+                while (parentsStmt.step()) {
+                    parents.push(parentsStmt.getAsObject());
+                }
+                parentsStmt.free();
+
                 db.close();
                 
+                const parsed = people.map(person => {
+                    const spouseIds = spouses
+                        .filter(s => s.spouse1Id === person.id || s.spouse2Id === person.id)
+                        .map(s => s.spouse1Id === person.id ? s.spouse2Id : s.spouse1Id);
+
+                    const parentIds = parents
+                        .filter(p => p.childId === person.id)
+                        .flatMap(p => [p.parent1Id, p.parent2Id])
+                        .filter(id => id != null);
+
+                    return { ...person, spouseIds, parentIds };
+                });
+
                 let roots = [];
                 // Detect if data is a flat SQL export instead of a tree
                 const isFlatSqlData = Array.isArray(parsed) && parsed.length > 0 && 'id' in parsed[0];
@@ -475,6 +512,10 @@
                 // Call update on initial render to calculate base physical bounds
                 updateZoomStyle();
 
+                // Center the tree horizontally and align to the top on initial load
+                scrollContainer.scrollLeft = (scrollContainer.scrollWidth - scrollContainer.clientWidth) / 2;
+                scrollContainer.scrollTop = 0;
+
             } catch (err) {
                 errorText.textContent = err.message;
                 errorOverlay.classList.remove('hidden');
@@ -491,21 +532,24 @@
         }
 
         // Zoom Functions
-        function updateZoomStyle() {
+        function updateZoomStyle(newScrollLeft = null, newScrollTop = null) {
             treeTransform.style.transform = `scale(${currentZoom})`;
             
             // Calculate and explicitly set the wrapper's physical dimensions.
             // This forces the scrollbars to recognize the new scaled size, completely preventing clipping!
-            setTimeout(() => {
-                const unscaledWidth = treeTransform.offsetWidth;
-                const unscaledHeight = treeTransform.offsetHeight;
-                
-                const wrapper = document.getElementById('scale-wrapper');
-                if (wrapper) {
-                    wrapper.style.width = `${unscaledWidth * currentZoom}px`;
-                    wrapper.style.height = `${unscaledHeight * currentZoom}px`;
-                }
-            }, 0);
+            const unscaledWidth = treeTransform.offsetWidth;
+            const unscaledHeight = treeTransform.offsetHeight;
+            
+            const wrapper = document.getElementById('scale-wrapper');
+            if (wrapper) {
+                wrapper.style.width = `${unscaledWidth * currentZoom}px`;
+                wrapper.style.height = `${unscaledHeight * currentZoom}px`;
+            }
+
+            if (newScrollLeft !== null && newScrollTop !== null) {
+                scrollContainer.scrollLeft = newScrollLeft;
+                scrollContainer.scrollTop = newScrollTop;
+            }
         }
 
         btnZoomIn.addEventListener('click', () => {
@@ -514,7 +558,7 @@
         });
 
         btnZoomOut.addEventListener('click', () => {
-            currentZoom = Math.max(currentZoom - 0.2, 0.4);
+            currentZoom = Math.max(currentZoom - 0.2, 0.05);
             updateZoomStyle();
         });
 
@@ -522,6 +566,40 @@
             currentZoom = 1;
             updateZoomStyle();
         });
+
+        // Zoom on mouse scroll wheel
+        scrollContainer.addEventListener('wheel', (e) => {
+            // Prevent default vertical/horizontal scrolling behavior
+            e.preventDefault();
+
+            // deltaY < 0 means scrolling up (zoom in)
+            const isZoomingIn = e.deltaY < 0;
+            
+            // Default step for standard mouse wheel zooming
+            let zoomDelta = 0.1;
+
+            // Smooth pinch-to-zoom on trackpads triggers the wheel event with ctrlKey
+            if (e.ctrlKey) {
+                zoomDelta = Math.abs(e.deltaY) * 0.01;
+            }
+
+            const oldZoom = currentZoom;
+            currentZoom = isZoomingIn ? Math.min(currentZoom + zoomDelta, 2) : Math.max(currentZoom - zoomDelta, 0.05);
+            
+            if (currentZoom !== oldZoom) {
+                // Get mouse coordinates relative to the scroll container
+                const rect = scrollContainer.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Calculate new scroll position to keep the content under the mouse stationary
+                const zoomRatio = currentZoom / oldZoom;
+                const newScrollLeft = (scrollContainer.scrollLeft + mouseX) * zoomRatio - mouseX;
+                const newScrollTop = (scrollContainer.scrollTop + mouseY) * zoomRatio - mouseY;
+                
+                updateZoomStyle(newScrollLeft, newScrollTop);
+            }
+        }, { passive: false }); // Passive must be false to allow preventDefault()
 
         // Drag to scroll functionality
         let isDragging = false;
