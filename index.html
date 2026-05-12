@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JSON Family Tree Viewer</title>
+    <title>SQLite Family Tree Viewer</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons via reliable CDN -->
     <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+    <!-- sql.js for SQLite in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.min.js"></script>
 
     <style>
         /* --- CSS for the Tree Layout --- */
@@ -37,15 +39,15 @@
             content: ''; 
             position: absolute; 
             top: 0; 
-            right: calc(50% - 1px);
+            right: 50%;
             border-top: 2px solid #94a3b8; 
-            width: calc(50% + 1px); 
+            width: 50%; 
             height: 20px;
+            z-index: 0;
         }
         .tree-container li::after {
             right: auto; 
-            left: calc(50% - 1px); 
-            border-left: 2px solid #94a3b8;
+            left: 50%; 
         }
 
         /* Clean up connector lines for edge cases */
@@ -53,23 +55,15 @@
             border: 0 none;
         }
         .tree-container li:last-child::before {
-            border-right: 2px solid #94a3b8; 
-            border-radius: 0 6px 0 0;
+            border-radius: 0;
         }
         .tree-container li:first-child::after {
-            border-radius: 6px 0 0 0;
+            border-radius: 0;
         }
 
         /* Keep consistent margin for only-child by drawing a direct vertical connector */
         .tree-container li:only-child::before {
-            display: block;
-            border: 0 none;
-            border-left: 2px solid #94a3b8;
-            border-radius: 0;
-            width: 0;
-            height: 20px;
-            right: auto;
-            left: calc(50% - 1px);
+            display: none;
         }
         .tree-container li:only-child::after {
             display: none;
@@ -79,37 +73,24 @@
         .tree-container ul ul::before {
             content: ''; 
             position: absolute; 
-            top: 0; 
-            left: 50%;
+            top: -20px; /* Move line up to connect with parent */
+            left: calc(50% - 1px);
             border-left: 2px solid #94a3b8; 
             width: 0; 
-            height: 20px;
-            transform: translateX(-50%);
+            height: 40px; /* Extend line down to children's connector */
         }
 
-        /* Connect husband-wife to parents (upward line, non-root nodes only) */
-        .tree-container ul ul li > div.flex::before {
+        /* Connect generation group to parents (upward line, non-root nodes only) */
+        .tree-container ul ul li > .generation-wrapper::before {
             content: '';
             position: absolute;
-            top: 0;
-            bottom: 50%;
-            left: 50%;
+            top: -20px; /* Go up into the li's padding-top */
+            height: var(--line-height, 60px); /* Dynamically set via JS to perfectly touch marriage lines */
+            left: calc(50% - 1px);
             border-left: 2px solid #94a3b8;
-            transform: translateX(-50%);
             z-index: 0;
         }
 
-        /* Connect husband-wife to children (downward line, only if node has children) */
-        .tree-container li:has(ul) > div.flex::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            bottom: 0;
-            left: 50%;
-            border-left: 2px solid #94a3b8;
-            transform: translateX(-50%);
-            z-index: 0;
-        }
 
         /* Node card transitions */
         .tree-node-card {
@@ -118,6 +99,18 @@
         .tree-node-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        }
+        .tree-node-card.highlighted {
+            border-color: #3b82f6; /* Tailwind blue-500 */
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+        }
+        .tree-node-card.highlighted-ancestor {
+            border-color: #10b981; /* Tailwind emerald-500 */
+            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.3);
+        }
+        .tree-node-card.highlighted-descendant {
+            border-color: #f59e0b; /* Tailwind amber-500 */
+            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.3);
         }
 
         /* Custom Scrollbar */
@@ -144,43 +137,6 @@
             justify-content: center;
         }
 
-        /* Smooth transitions for highlight */
-        .tree-container li::before,
-        .tree-container li::after,
-        .tree-container ul ul::before,
-        .tree-container li > div.flex::before,
-        .tree-container li > div.flex::after,
-        .marriage-line,
-        .tree-node-card {
-            transition: all 0.3s ease;
-        }
-
-        /* Highlight specific vertical lineage */
-        .tree-container .highlight-path > div.flex > .direct-relative-card,
-        .tree-container .highlight-node .direct-relative-card {
-            border-color: #3b82f6 !important;
-            background-color: #eff6ff !important;
-        }
-        
-        .tree-container .highlight-path > div.flex::before,
-        .tree-container .highlight-path > div.flex::after,
-        .tree-container .highlight-path > ul::before,
-        .tree-container .highlight-path::before,
-        .tree-container .highlight-path::after {
-            border-color: #3b82f6 !important;
-        }
-
-        .tree-container .highlight-node::before,
-        .tree-container .highlight-node::after,
-        .tree-container .highlight-node > div.flex::before,
-        .tree-container .highlight-node > div.flex::after,
-        .tree-container .highlight-node ul ul::before,
-        .tree-container .highlight-node li::before,
-        .tree-container .highlight-node li::after,
-        .tree-container .highlight-node li > div.flex::before,
-        .tree-container .highlight-node li > div.flex::after {
-            border-color: #3b82f6 !important;
-        }
     </style>
 </head>
 <body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
@@ -251,37 +207,6 @@
         const btnZoomOut = document.getElementById('btn-zoom-out');
         const btnZoomReset = document.getElementById('btn-zoom-reset');
 
-        // Global event listeners for hover highlight on direct lineage (vertical)
-        treeRoot.addEventListener('mouseover', (e) => {
-            const card = e.target.closest('.direct-relative-card');
-            if (card) {
-                const li = card.closest('li');
-                if (li) {
-                    li.classList.add('highlight-node');
-                    let current = li.parentElement.closest('li');
-                    while (current) {
-                        current.classList.add('highlight-path');
-                        current = current.parentElement.closest('li');
-                    }
-                }
-            }
-        });
-        
-        treeRoot.addEventListener('mouseout', (e) => {
-            const card = e.target.closest('.direct-relative-card');
-            if (card) {
-                const li = card.closest('li');
-                if (li) {
-                    li.classList.remove('highlight-node');
-                    let current = li.parentElement.closest('li');
-                    while (current) {
-                        current.classList.remove('highlight-path');
-                        current = current.parentElement.closest('li');
-                    }
-                }
-            }
-        });
-
         // State
         let currentZoom = 1;
 
@@ -299,20 +224,27 @@
                 .replace(/'/g, '&#39;');
         }
 
-        // Generate HTML for a single node recursively
-        function generateNodeHTML(node) {
-            if (!node || typeof node !== 'object') return '';
+        // Utility: Parse ID lists safely
+        function parseIds(value) {
+            if (!value) return [];
+            if (Array.isArray(value)) return value;
+            try { return JSON.parse(value); } 
+            catch(e) { return [value]; }
+        }
 
-            let html = `<li>
-                <div class="flex items-center justify-center relative">
-                    <!-- Main Direct Descendant Node -->
-                    <div class="tree-node-card direct-relative-card bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-default" title="Hover to highlight lineage">
-                        <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(node.name || "Unknown")}</h3>`;
+        // Utility: Generate HTML for a person's card to prevent code duplication
+        function generateCardHTML(person, isSpouse = false) {
+            if (!person) return '';
+            const cardClass = isSpouse ? 'spouse-card' : 'direct-relative-card';
+            const personIdAttr = person.id ? `data-id="${person.id}"` : '';
+            const parentIdsAttr = (person._parentIds && person._parentIds.length > 0) ? `data-parent-ids="${person._parentIds.join(',')}"` : '';
             
-            // Attributes
-            if (node.attributes && Object.keys(node.attributes).length > 0) {
+            let html = `<div ${personIdAttr} ${parentIdsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer">
+                <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(person.name || "Unknown")}</h3>`;
+            
+            if (person.attributes && Object.keys(person.attributes).length > 0) {
                 html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
-                for (const [key, value] of Object.entries(node.attributes)) {
+                for (const [key, value] of Object.entries(person.attributes)) {
                     html += `
                         <div class="bg-white/70 px-2 py-1 rounded-md text-left overflow-hidden text-ellipsis whitespace-nowrap" title="${escapeHTML(key)}: ${escapeHTML(value)}">
                             <span class="font-semibold text-slate-800 capitalize">${escapeHTML(key)}:</span> ${escapeHTML(value)}
@@ -321,65 +253,201 @@
                 html += `</div>`;
             }
             
-            html += `</div>`; // Close Main Node
+            html += `</div>`;
+            return html;
+        }
 
-            // Spouses
-            if (node.spouses && Array.isArray(node.spouses)) {
-                node.spouses.forEach((spouse) => {
-                    html += `
-                        <!-- Marriage Connector Line -->
-                        <div class="marriage-line h-0.5 w-10 bg-slate-400 relative z-0 flex items-center justify-center shrink-0"></div>
-                        
-                        <!-- Spouse Node -->
-                        <div class="tree-node-card spouse-card bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-default">
-                            <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(spouse.name || "Unknown")}</h3>`;
+        // Generate HTML for a single node recursively
+        function generateNodeHTML(node) {
+            if (!node || typeof node !== 'object') return '';
+
+            const spousesWithChildren = node.spouses && Array.isArray(node.spouses) ? node.spouses.filter(s => s.children && Array.isArray(s.children) && s.children.length > 0) : [];
+            const spousesWithoutChildren = node.spouses && Array.isArray(node.spouses) ? node.spouses.filter(s => !s.children || !Array.isArray(s.children) || s.children.length === 0) : [];
+            const hasSpousesWithChildren = spousesWithChildren.length > 0;
+            const hasDirectChildren = node.children && Array.isArray(node.children) && node.children.length > 0;
+
+            let html = `<li class="relative">
+                <div class="generation-wrapper flex items-start justify-center relative">
                     
-                    // Spouse Attributes
-                    if (spouse.attributes && Object.keys(spouse.attributes).length > 0) {
-                        html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
-                        for (const [key, value] of Object.entries(spouse.attributes)) {
-                            html += `
-                                <div class="bg-white/70 px-2 py-1 rounded-md text-left overflow-hidden text-ellipsis whitespace-nowrap" title="${escapeHTML(key)}: ${escapeHTML(value)}">
-                                    <span class="font-semibold text-slate-800 capitalize">${escapeHTML(key)}:</span> ${escapeHTML(value)}
-                                </div>`;
-                        }
-                        html += `</div>`;
-                    }
-                    html += `</div>`; // Close Spouse Node
+                    <!-- Main Node Column -->
+                    <div class="flex flex-col items-center relative z-10">
+                        <div class="relative w-full flex justify-center">
+                            ${hasSpousesWithChildren ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>` : ''}
+                            <div class="flex items-center relative z-10">
+                                ${generateCardHTML(node, false)}`;
+            
+            // Childless Spouses (rendered immediately next to the main node)
+            if (spousesWithoutChildren.length > 0) {
+                spousesWithoutChildren.forEach(spouse => {
+                    html += `
+                                <div class="w-8 h-[2px] bg-slate-400 z-0 shrink-0 relative marriage-line"></div>
+                                ${generateCardHTML(spouse, true)}`;
                 });
             }
-
-            html += `</div>`; // Close flex container for node + spouses
-
-            // Children Recursive Call
-            if (node.children && Array.isArray(node.children) && node.children.length > 0) {
+            
+            html += `       </div>
+                        </div>`; // Close Flex Container
+            
+            if (hasDirectChildren) {
                 html += `<ul>`;
-                node.children.forEach((child) => {
-                    html += generateNodeHTML(child);
-                });
+                node.children.forEach((child) => { html += generateNodeHTML(child); });
                 html += `</ul>`;
             }
-
-            html += `</li>`;
+            
+            html += `</div>`; // Close Main Node Column
+            
+            // Spouses Columns (only for spouses WITH children)
+            if (hasSpousesWithChildren) {
+                spousesWithChildren.forEach((spouse, index) => {
+                    const isNotLast = index < spousesWithChildren.length - 1;
+                    html += `
+                    <!-- SPOUSE COLUMN -->
+                    <div class="flex flex-col items-center relative z-10">
+                        <div class="relative w-full flex justify-center">
+                            <!-- Connect to previous column -->
+                            <div class="absolute top-1/2 left-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>
+                            <!-- Connect to next column -->
+                            ${isNotLast ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>` : ''}
+                            
+                            ${generateCardHTML(spouse, true)}
+                        </div>`; // Close Spouse Card wrapper
+                        
+                    if (spouse.children && Array.isArray(spouse.children) && spouse.children.length > 0) {
+                        html += `<ul>`;
+                        spouse.children.forEach(child => { html += generateNodeHTML(child); });
+                        html += `</ul>`;
+                    }
+                    
+                    html += `</div>`; // Close Spouse Column
+                });
+            }
+            
+            html += `
+                </div>
+            </li>`;
             return html;
+        }
+
+        // Transform flat SQL-like data into the hierarchical format
+        function buildHierarchy(flatData) {
+            const nodeMap = new Map();
+            
+            // First pass: create node objects and map them
+            flatData.forEach(row => {
+                const node = {
+                    id: row.id,
+                    name: row.name,
+                    attributes: {},
+                    _parentIds: [],
+                    _spouseIds: [],
+                    _visited: false,
+                    _addedAsChild: false
+                };
+                
+                node._parentIds = parseIds(row.parentIds);
+                node._spouseIds = parseIds(row.spouseIds);
+                
+                if (row.surname) node.attributes.surname = row.surname;
+                if (row.maiden_name) node.attributes['maiden name'] = row.maiden_name;
+                if (row.birthdate) node.attributes.birthdate = row.birthdate;
+                if (row.gender === 1) node.attributes.gender = 'Male';
+                if (row.gender === 2) node.attributes.gender = 'Female';
+                if (row.note) node.attributes.note = row.note;
+                
+                nodeMap.set(Number(row.id), node);
+            });
+
+            const roots = [];
+            nodeMap.forEach(node => {
+                // Nodes with no parents, or whose parents don't exist in the dataset, are roots
+                const hasExistingParent = node._parentIds.some(pid => nodeMap.has(Number(pid)));
+                if (!hasExistingParent) {
+                    // Prevent nodes that are just spouses of someone with parents from becoming independent roots
+                    const hasSpouseWithParent = node._spouseIds.some(spouseId => {
+                        const spouse = nodeMap.get(Number(spouseId));
+                        return spouse && spouse._parentIds.some(pid => nodeMap.has(Number(pid)));
+                    });
+                    
+                    if (!hasSpouseWithParent) {
+                        roots.push(node);
+                    }
+                }
+            });
+
+            function buildNode(nodeId, asSpouse = false) {
+                const node = nodeMap.get(Number(nodeId));
+                if (!node) return null;
+                
+                // If already visited, return null to prevent duplication and cycles
+                if (node._visited) return null; 
+                node._visited = true;
+
+                const result = { 
+                    id: node.id,
+                    _parentIds: node._parentIds,
+                    name: node.name, 
+                    attributes: { ...node.attributes }, 
+                    children: [], 
+                    spouses: [] 
+                };
+
+                // 1. Claim direct children first so they fall under the correct parent
+                nodeMap.forEach(potentialChild => {
+                    if (potentialChild._parentIds.map(Number).includes(Number(node.id)) && !potentialChild._addedAsChild) {
+                        potentialChild._addedAsChild = true;
+                        const childNode = buildNode(potentialChild.id);
+                        if (childNode) result.children.push(childNode);
+                    }
+                });
+
+                // 2. Attach spouses
+                if (!asSpouse) {
+                    node._spouseIds.forEach(spouseId => {
+                        const spouseNode = buildNode(spouseId, true);
+                        if (spouseNode) result.spouses.push(spouseNode);
+                    });
+                }
+                return result;
+            }
+
+            return roots.map(root => buildNode(root.id)).filter(Boolean);
         }
 
         // Fetch Data and Render Tree Logic
         async function loadAndRenderTree() {
             try {
-                const response = await fetch('data.json');
+                // Initialize sql.js WebAssembly
+                const SQL = await initSqlJs({
+                    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+                });
+
+                const dbFileName = 'data.sqlite';
+                const response = await fetch(dbFileName);
                 if (!response.ok) {
-                    throw new Error(`Failed to load data.json (${response.status}: ${response.statusText}). Note: Browsers block fetch requests on the file:// protocol. Please serve this folder using a local web server.`);
+                    throw new Error(`Failed to load ${dbFileName} (${response.status}: ${response.statusText}). Note: Browsers block fetch requests on the file:// protocol. Please serve this folder using a local web server.`);
                 }
                 
-                const parsed = await response.json();
-                
-                if (!parsed || typeof parsed !== 'object') {
-                    throw new Error("Input must be a valid JSON Object or Array of Objects.");
+                // Read the database file into memory
+                const buffer = await response.arrayBuffer();
+                const db = new SQL.Database(new Uint8Array(buffer));
+
+                // Query the database
+                const stmt = db.prepare("SELECT * FROM FamilyTree");
+                const parsed = [];
+                while (stmt.step()) {
+                    parsed.push(stmt.getAsObject());
                 }
+                stmt.free();
+                db.close();
                 
-                // Normalize to array for multi-root support
-                const roots = Array.isArray(parsed) ? parsed : [parsed];
+                let roots = [];
+                // Detect if data is a flat SQL export instead of a tree
+                const isFlatSqlData = Array.isArray(parsed) && parsed.length > 0 && 'id' in parsed[0];
+                if (isFlatSqlData) {
+                    roots = buildHierarchy(parsed);
+                } else {
+                    roots = Array.isArray(parsed) ? parsed : [parsed];
+                }
                 
                 let rootsHTML = '<div class="roots-container">';
                 roots.forEach(root => {
@@ -390,6 +458,16 @@
                 // Build Tree
                 treeRoot.innerHTML = rootsHTML;
                 errorOverlay.classList.add('hidden');
+
+                // Calculate vertical line heights for perfect marriage line connections
+                document.querySelectorAll('.generation-wrapper').forEach(wrapper => {
+                    const card = wrapper.querySelector('.tree-node-card');
+                    if (card) {
+                        const cardWrapper = card.closest('.relative.w-full.flex');
+                        const targetHeight = cardWrapper ? cardWrapper.offsetHeight : card.offsetHeight;
+                        wrapper.style.setProperty('--line-height', (targetHeight / 2 + 20) + 'px');
+                    }
+                });
 
                 // Crucial: Re-initialize Lucide icons for dynamically injected elements
                 lucide.createIcons();
@@ -484,6 +562,65 @@
             // Adjust the scroll position
             scrollContainer.scrollLeft = initialScrollLeft - walkX;
             scrollContainer.scrollTop = initialScrollTop - walkY;
+        });
+
+        // Node selection and bloodline highlighting logic
+        treeRoot.addEventListener('click', (e) => {
+            const card = e.target.closest('.tree-node-card');
+            if (!card) return;
+            
+            const isAlreadyHighlighted = card.classList.contains('highlighted');
+            
+            // Clear previous highlights
+            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-ancestor, .tree-node-card.highlighted-descendant').forEach(el => {
+                el.classList.remove('highlighted', 'highlighted-ancestor', 'highlighted-descendant');
+            });
+            
+            // Highlight logic (toggles off if clicking the currently highlighted card)
+            if (!isAlreadyHighlighted) {
+                card.classList.add('highlighted');
+                
+                // Pre-compute child map for O(1) descendant lookups
+                const childMap = {};
+                document.querySelectorAll('.tree-node-card[data-parent-ids]').forEach(el => {
+                    const pids = el.getAttribute('data-parent-ids').split(',');
+                    pids.forEach(pid => {
+                        if (!childMap[pid]) childMap[pid] = [];
+                        childMap[pid].push(el);
+                    });
+                });
+
+                // Recursive function to highlight ancestors
+                function highlightAncestors(currentCard) {
+                    const parentIdsAttr = currentCard.getAttribute('data-parent-ids');
+                    if (parentIdsAttr) {
+                        parentIdsAttr.split(',').forEach(pid => {
+                            document.querySelectorAll(`.tree-node-card[data-id="${pid}"]`).forEach(parentCard => {
+                                if (!parentCard.classList.contains('highlighted-ancestor')) {
+                                    parentCard.classList.add('highlighted-ancestor');
+                                    highlightAncestors(parentCard);
+                                }
+                            });
+                        });
+                    }
+                }
+                
+                // Recursive function to highlight descendants
+                function highlightDescendants(currentCard) {
+                    const currentId = currentCard.getAttribute('data-id');
+                    if (!currentId || !childMap[currentId]) return;
+                    
+                    childMap[currentId].forEach(childCard => {
+                        if (!childCard.classList.contains('highlighted-descendant')) {
+                            childCard.classList.add('highlighted-descendant');
+                            highlightDescendants(childCard);
+                        }
+                    });
+                }
+                
+                highlightAncestors(card);
+                highlightDescendants(card);
+            }
         });
 
         // Initial Execution
