@@ -95,6 +95,7 @@
         /* Node card transitions */
         .tree-node-card {
             transition: all 0.2s ease-in-out;
+            min-height: 10em;
         }
         .tree-node-card:hover {
             transform: translateY(-2px);
@@ -314,16 +315,16 @@
                     
                     <!-- Main Node Column -->
                     <div class="flex flex-col items-center relative z-10">
-                        <div class="relative w-full flex justify-center">
+                        <div class="relative w-full flex justify-center items-stretch">
                             ${hasSpousesWithChildren ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>` : ''}
-                            <div class="flex items-center relative z-10">
+                            <div class="flex items-stretch relative z-10">
                                 ${generateCardHTML(node, false)}`;
             
             // Childless Spouses (rendered immediately next to the main node)
             if (spousesWithoutChildren.length > 0) {
                 spousesWithoutChildren.forEach(spouse => {
                     html += `
-                                <div class="w-8 h-[2px] bg-slate-400 z-0 shrink-0 relative marriage-line"></div>
+                                <div class="w-8 h-[2px] bg-slate-400 z-0 shrink-0 relative marriage-line self-center"></div>
                                 ${generateCardHTML(spouse, true)}`;
                 });
             }
@@ -346,7 +347,7 @@
                     html += `
                     <!-- SPOUSE COLUMN -->
                     <div class="flex flex-col items-center relative z-10">
-                        <div class="relative w-full flex justify-center">
+                        <div class="relative w-full flex justify-center items-stretch">
                             <!-- Connect to previous column -->
                             <div class="absolute top-1/2 left-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>
                             <!-- Connect to next column -->
@@ -559,14 +560,22 @@
                     else legendNote.classList.add('hidden');
                 }
 
-                // Calculate vertical line heights for perfect marriage line connections
+                    // Calculate vertical line heights and sync row heights for perfect marriage line connections
                 document.querySelectorAll('.generation-wrapper').forEach(wrapper => {
-                    const card = wrapper.querySelector('.tree-node-card');
-                    if (card) {
-                        const cardWrapper = card.closest('.relative.w-full.flex');
-                        const targetHeight = cardWrapper ? cardWrapper.offsetHeight : card.offsetHeight;
-                        wrapper.style.setProperty('--line-height', (targetHeight / 2 + 20) + 'px');
-                    }
+                        const columns = Array.from(wrapper.children);
+                        const cardWrappers = columns
+                            .map(col => col.querySelector('.relative.w-full.flex'))
+                            .filter(Boolean);
+                        
+                        let maxHeight = 0;
+                        cardWrappers.forEach(cw => {
+                            cw.style.height = 'auto'; // Reset before calculating
+                            if (cw.offsetHeight > maxHeight) maxHeight = cw.offsetHeight;
+                        });
+                        
+                        cardWrappers.forEach(cw => {
+                            cw.style.height = maxHeight + 'px';
+                        });
                 });
 
                 // Crucial: Re-initialize Lucide icons for dynamically injected elements
