@@ -199,18 +199,18 @@
         </div>
 
         <!-- Person Details Panel -->
-        <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 mb-4 max-h-64">
+        <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 mb-4">
             <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
                 <span>Kişi Detayları</span>
                 <i data-lucide="user" class="w-3.5 h-3.5 text-slate-400"></i>
             </div>
-            <div id="person-details-content" class="flex flex-col gap-2 text-xs text-slate-600 overflow-y-auto custom-scrollbar pr-1">
+            <div id="person-details-content" class="flex flex-col gap-2 text-xs text-slate-600">
                 <!-- Populated by JS -->
             </div>
         </div>
 
         <!-- Generation Color Legend -->
-        <div id="generation-legend" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col flex-1 overflow-hidden">
+        <div id="generation-legend" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col flex-1 min-h-0 overflow-hidden">
             <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
                 <span>Renkler</span>
                 <i data-lucide="palette" class="w-3.5 h-3.5 text-slate-400"></i>
@@ -334,7 +334,7 @@
             const spouseIdsAttr = (person._spouseIds && person._spouseIds.length > 0) ? `data-spouse-ids="${person._spouseIds.join(',')}"` : '';
             const genAttr = person._generation ? `data-generation="${person._generation}"` : '';
             
-            const personDetails = { name: person.name, id: person.id, attributes: person.attributes };
+            const personDetails = { name: person.name, id: person.id, photoUrl: person.photoUrl, attributes: person.attributes };
             const detailsAttr = `data-details="${escapeHTML(JSON.stringify(personDetails))}"`;
 
             const name = person.name || "UNKNOWN";
@@ -348,9 +348,16 @@
                 genderBar = '<div class="absolute top-0 left-0 w-full h-1 bg-rose-400/50"></div>';
             }
 
+            let portraitHtml = '';
+            if (person.photoUrl) {
+                portraitHtml = `<img src="${escapeHTML(person.photoUrl)}" alt="${escapeHTML(name)}" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-slate-100 shadow-sm shrink-0">`;
+            } else {
+                portraitHtml = `<div class="w-16 h-16 rounded-full bg-slate-50 mx-auto mb-2 flex items-center justify-center border-2 border-slate-100 shadow-sm shrink-0"><i data-lucide="user" class="w-8 h-8 text-slate-300"></i></div>`;
+            }
+
             let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] min-h-[10em] text-center relative z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
                 ${genderBar}
-                <div class="text-[10px] text-slate-400 font-mono uppercase tracking-wider mb-1">ID: ${escapeHTML(person.id)}</div>
+                ${portraitHtml}
                 <h3 class="font-bold text-slate-900 text-lg hover:opacity-80 transition-opacity ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</h3>`;
             if (surname) {
                 html += `<div class="font-semibold text-slate-700 text-base -mt-1 mb-1">${escapeHTML(surname)}</div>`;
@@ -462,6 +469,7 @@
                 const node = {
                     id: row.id,
                     name: row.name,
+                    photoUrl: row.photoUrl,
                     attributes: {},
                     _parentIds: [],
                     _spouseIds: [],
@@ -513,6 +521,7 @@
                     _spouseIds: node._spouseIds,
                     _generation: depth,
                     name: node.name, 
+                    photoUrl: node.photoUrl,
                     attributes: { ...node.attributes }, 
                     children: [], 
                     spouses: [] 
@@ -1165,7 +1174,14 @@
                         const name = details.name || "UNKNOWN";
                         const surname = (details.attributes && details.attributes.surname) ? details.attributes.surname : '';
                         
-                        let detailsHTML = `<div class="font-bold text-slate-900 text-sm ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</div>`;
+                        let detailsHTML = '';
+                        if (details.photoUrl) {
+                            detailsHTML += `<img src="${escapeHTML(details.photoUrl)}" alt="Portrait" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-slate-100 shadow-sm shrink-0">`;
+                        } else {
+                            detailsHTML += `<div class="w-16 h-16 rounded-full bg-slate-50 mx-auto mb-2 flex items-center justify-center border-2 border-slate-100 shadow-sm shrink-0"><i data-lucide="user" class="w-8 h-8 text-slate-300"></i></div>`;
+                        }
+                        
+                        detailsHTML += `<div class="font-bold text-slate-900 text-sm ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</div>`;
                         if (surname) {
                             detailsHTML += `<div class="font-semibold text-slate-700 text-sm mb-1">${escapeHTML(surname)}</div>`;
                         }
@@ -1193,6 +1209,7 @@
                         personDetailsContent.innerHTML = detailsHTML;
                         personDetailsPanel.classList.remove('hidden');
                         personDetailsPanel.classList.add('flex');
+                        lucide.createIcons();
                     } catch (err) {
                         console.error("Failed to parse person details", err);
                     }
