@@ -277,7 +277,7 @@
             
             let html = `<div ${personIdAttr} ${parentIdsAttr} ${genAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer">
                 <div class="text-[10px] text-slate-400 font-mono uppercase tracking-wider mb-1">ID: ${escapeHTML(person.id)}</div>
-                <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(person.name || "Unknown")}</h3>`;
+                <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(person.name || "UNKNOWN")}</h3>`;
             
             if (person.attributes && Object.keys(person.attributes).length > 0) {
                 html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
