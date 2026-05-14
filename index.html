@@ -150,6 +150,12 @@
             justify-content: center;
         }
 
+        /* Search Matches */
+        .tree-node-card.search-match {
+            outline: 3px solid #f59e0b;
+            outline-offset: 2px;
+        }
+
     </style>
 </head>
 <body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative flex bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] select-none">
@@ -183,7 +189,7 @@
     <div class="w-[180px] h-full bg-slate-50/95 backdrop-blur border-l border-slate-200 shadow-xl flex flex-col p-4 z-20 shrink-0">
         
         <!-- Toolbar -->
-        <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden items-center justify-center mb-6 shrink-0">
+        <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden items-center justify-center mb-4 shrink-0">
             <button id="btn-zoom-out" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom Out">
                 <i data-lucide="zoom-out" class="w-5 h-5"></i>
             </button>
@@ -195,6 +201,17 @@
             </button>
             <button id="btn-focus" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex-1 flex justify-center" title="Focus">
                 <i data-lucide="focus" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <!-- Search -->
+        <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden items-center justify-center mb-6 shrink-0">
+            <input type="text" id="search-input" placeholder="Ara..." class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
+            <button id="btn-search-prev" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex justify-center shrink-0" title="Önceki Sonuç">
+                <i data-lucide="chevron-up" class="w-4 h-4"></i>
+            </button>
+            <button id="btn-search-next" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex justify-center shrink-0" title="Sonraki Sonuç">
+                <i data-lucide="chevron-down" class="w-4 h-4"></i>
             </button>
         </div>
 
@@ -268,6 +285,10 @@
         const btnZoomReset = document.getElementById('btn-zoom-reset');
         const btnFocus = document.getElementById('btn-focus');
 
+        const searchInput = document.getElementById('search-input');
+        const btnSearchPrev = document.getElementById('btn-search-prev');
+        const btnSearchNext = document.getElementById('btn-search-next');
+
         const personDetailsPanel = document.getElementById('person-details-panel');
         const personDetailsContent = document.getElementById('person-details-content');
 
@@ -282,6 +303,8 @@
         // State
         let currentZoom = 1;
         let isFocusMode = false;
+        let searchResults = [];
+        let currentSearchIndex = -1;
 
         // Initialize Lucide Icons on load
         lucide.createIcons();
@@ -1363,6 +1386,90 @@
                 e.preventDefault();
             }
         });
+
+        // --- Search Logic ---
+        function performSearch() {
+            const query = searchInput.value.trim().toLocaleLowerCase('tr-TR');
+            
+            document.querySelectorAll('.search-match').forEach(el => el.classList.remove('search-match'));
+            searchResults = [];
+            currentSearchIndex = -1;
+
+            if (!query) return;
+
+            // Exit focus mode to ensure all potential matches are visible
+            if (isFocusMode) toggleFocusMode(false);
+
+            document.querySelectorAll('.tree-node-card').forEach(card => {
+                const detailsStr = card.getAttribute('data-details');
+                if (detailsStr) {
+                    try {
+                        const details = JSON.parse(detailsStr);
+                        const searchableValues = [
+                            details.name,
+                            details.id,
+                            ...(details.attributes ? Object.values(details.attributes) : [])
+                        ];
+                        
+                        const text = searchableValues.filter(Boolean).join(' ').toLocaleLowerCase('tr-TR');
+
+                        if (text.includes(query)) {
+                            searchResults.push(card);
+                            card.classList.add('search-match');
+                        }
+                    } catch (e) {}
+                }
+            });
+
+            if (searchResults.length > 0) {
+                currentSearchIndex = 0;
+                focusSearchResult();
+            }
+        }
+
+        function focusSearchResult() {
+            if (searchResults.length === 0 || currentSearchIndex < 0) return;
+            
+            const targetCard = searchResults[currentSearchIndex];
+            
+            const cardRect = targetCard.getBoundingClientRect();
+            const treeRect = treeTransform.getBoundingClientRect();
+            const containerRect = scrollContainer.getBoundingClientRect();
+            
+            const cardCenterX = (cardRect.left - treeRect.left) + (cardRect.width / 2);
+            const cardCenterY = (cardRect.top - treeRect.top) + (cardRect.height / 2);
+            
+            scrollContainer.scrollTo({
+                left: cardCenterX - (containerRect.width / 2),
+                top: cardCenterY - (containerRect.height / 2),
+                behavior: 'smooth'
+            });
+            
+            // Trigger click simulation to show person details perfectly
+            if (!targetCard.classList.contains('highlighted')) {
+                 targetCard.click();
+            }
+        }
+
+        function navigateSearch(direction) {
+            if (searchResults.length === 0) return;
+            currentSearchIndex += direction;
+            if (currentSearchIndex < 0) currentSearchIndex = searchResults.length - 1;
+            if (currentSearchIndex >= searchResults.length) currentSearchIndex = 0;
+            focusSearchResult();
+        }
+
+        searchInput.addEventListener('input', performSearch);
+        
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                navigateSearch(e.shiftKey ? -1 : 1);
+            }
+        });
+
+        btnSearchPrev.addEventListener('click', () => navigateSearch(-1));
+        btnSearchNext.addEventListener('click', () => navigateSearch(1));
 
         // Initial Execution
         loadAndRenderTree();
