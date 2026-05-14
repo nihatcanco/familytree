@@ -80,6 +80,14 @@
         .focus-hidden {
             display: none !important;
         }
+        
+        /* Hide parent connection lines when parent is hidden in focus mode */
+        .hide-parent-lines::before {
+            display: none !important;
+        }
+        .hide-parent-lines > li > .generation-wrapper::before {
+            display: none !important;
+        }
 
         /* Downward line from parent to children */
         .tree-container ul ul::before {
@@ -144,7 +152,7 @@
 
     </style>
 </head>
-<body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative flex bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
+<body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative flex bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] select-none">
 
     <!-- Main Tree Content -->
     <div class="flex-1 relative h-full overflow-hidden">
@@ -188,6 +196,17 @@
             <button id="btn-focus" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex-1 flex justify-center" title="Focus">
                 <i data-lucide="focus" class="w-5 h-5"></i>
             </button>
+        </div>
+
+        <!-- Person Details Panel -->
+        <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 mb-4 max-h-64">
+            <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
+                <span>Kişi Detayları</span>
+                <i data-lucide="user" class="w-3.5 h-3.5 text-slate-400"></i>
+            </div>
+            <div id="person-details-content" class="flex flex-col gap-2 text-xs text-slate-600 overflow-y-auto custom-scrollbar pr-1">
+                <!-- Populated by JS -->
+            </div>
         </div>
 
         <!-- Generation Color Legend -->
@@ -248,6 +267,9 @@
         const btnZoomOut = document.getElementById('btn-zoom-out');
         const btnZoomReset = document.getElementById('btn-zoom-reset');
         const btnFocus = document.getElementById('btn-focus');
+
+        const personDetailsPanel = document.getElementById('person-details-panel');
+        const personDetailsContent = document.getElementById('person-details-content');
 
         const generationLegend = document.getElementById('generation-legend');
         const legendList = document.getElementById('legend-list');
@@ -311,14 +333,34 @@
             const parentIdsAttr = (person._parentIds && person._parentIds.length > 0) ? `data-parent-ids="${person._parentIds.join(',')}"` : '';
             const spouseIdsAttr = (person._spouseIds && person._spouseIds.length > 0) ? `data-spouse-ids="${person._spouseIds.join(',')}"` : '';
             const genAttr = person._generation ? `data-generation="${person._generation}"` : '';
-
-            let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer min-w-0 h-fit">
-                <div class="text-[10px] text-slate-400 font-mono uppercase tracking-wider mb-1">ID: ${escapeHTML(person.id)}</div>
-                <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(person.name || "UNKNOWN")}</h3>`;
             
-            if (person.attributes && Object.keys(person.attributes).length > 0) {
+            const personDetails = { name: person.name, id: person.id, attributes: person.attributes };
+            const detailsAttr = `data-details="${escapeHTML(JSON.stringify(personDetails))}"`;
+
+            const name = person.name || "UNKNOWN";
+            const surname = (person.attributes && person.attributes.surname) ? person.attributes.surname : '';
+
+            const gender = (person.attributes && person.attributes.gender) ? person.attributes.gender : '';
+            let genderBar = '';
+            if (gender === 'Male') {
+                genderBar = '<div class="absolute top-0 left-0 w-full h-1 bg-sky-400/50"></div>';
+            } else if (gender === 'Female') {
+                genderBar = '<div class="absolute top-0 left-0 w-full h-1 bg-rose-400/50"></div>';
+            }
+
+            let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] min-h-[10em] text-center relative z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
+                ${genderBar}
+                <div class="text-[10px] text-slate-400 font-mono uppercase tracking-wider mb-1">ID: ${escapeHTML(person.id)}</div>
+                <h3 class="font-bold text-slate-900 text-lg hover:opacity-80 transition-opacity ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</h3>`;
+            if (surname) {
+                html += `<div class="font-semibold text-slate-700 text-base -mt-1 mb-1">${escapeHTML(surname)}</div>`;
+            }
+            
+            const displayAttributes = Object.keys(person.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
+            if (displayAttributes.length > 0) {
                 html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
-                for (const [key, value] of Object.entries(person.attributes)) {
+                for (const key of displayAttributes) {
+                    const value = person.attributes[key];
                     if (key === 'note') {
                         html += `
                             <div class="bg-amber-50 px-2 py-1.5 rounded-md text-left whitespace-normal break-words mt-1 border border-amber-100">
@@ -812,6 +854,7 @@
 
             // Reset all hidden elements
             document.querySelectorAll('.focus-hidden').forEach(el => el.classList.remove('focus-hidden'));
+            document.querySelectorAll('.hide-parent-lines').forEach(el => el.classList.remove('hide-parent-lines'));
 
             if (isFocusMode) {
                 const highlightedCards = document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse');
@@ -871,6 +914,19 @@
                         const firstCol = visibleCols[0];
                         const leftLine = firstCol.querySelector('.marriage-line.left-0');
                         if (leftLine) leftLine.classList.add('focus-hidden');
+                    }
+                });
+
+                // 4.5 Clean up vertical lines for nodes whose parents are hidden
+                document.querySelectorAll('ul').forEach(ul => {
+                    const parentWrapper = ul.previousElementSibling;
+                    if (parentWrapper && parentWrapper.classList.contains('relative') && parentWrapper.classList.contains('w-full')) {
+                        const visibleCards = parentWrapper.querySelectorAll('.tree-node-card:not(.focus-hidden)');
+                        if (visibleCards.length === 0) {
+                            ul.classList.add('hide-parent-lines');
+                            const downwardLine = parentWrapper.querySelector('.border-l-2');
+                            if (downwardLine) downwardLine.classList.add('focus-hidden');
+                        }
                     }
                 });
             }
@@ -1095,9 +1151,52 @@
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
             
+            personDetailsPanel.classList.add('hidden');
+            personDetailsPanel.classList.remove('flex');
+            
             // Highlight logic (toggles off if clicking the currently highlighted card)
             if (!isAlreadyHighlighted) {
                 card.classList.add('highlighted');
+                
+                const detailsStr = card.getAttribute('data-details');
+                if (detailsStr) {
+                    try {
+                        const details = JSON.parse(detailsStr);
+                        const name = details.name || "UNKNOWN";
+                        const surname = (details.attributes && details.attributes.surname) ? details.attributes.surname : '';
+                        
+                        let detailsHTML = `<div class="font-bold text-slate-900 text-sm ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</div>`;
+                        if (surname) {
+                            detailsHTML += `<div class="font-semibold text-slate-700 text-sm mb-1">${escapeHTML(surname)}</div>`;
+                        }
+                        detailsHTML += `<div class="text-[10px] text-slate-400 font-mono mb-2 border-b border-slate-100 pb-2">ID: ${escapeHTML(details.id)}</div>`;
+                        
+                        const displayAttributes = Object.keys(details.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
+                        if (displayAttributes.length > 0) {
+                            for (const key of displayAttributes) {
+                                const value = details.attributes[key];
+                                if (key === 'note') {
+                                    detailsHTML += `
+                                        <div class="bg-amber-50 px-2 py-1.5 rounded-md border border-amber-100">
+                                            <div class="font-semibold text-slate-800 text-[10px] uppercase mb-0.5">${escapeHTML(key)}</div>
+                                            <div class="whitespace-normal break-words text-slate-800">${escapeHTML(value)}</div>
+                                        </div>`;
+                                } else {
+                                    detailsHTML += `
+                                        <div class="bg-slate-50 px-2 py-1.5 rounded-md border border-slate-100">
+                                            <div class="font-semibold text-slate-700 text-[10px] uppercase mb-0.5">${escapeHTML(key)}</div>
+                                            <div class="whitespace-normal break-words text-slate-800">${escapeHTML(value)}</div>
+                                        </div>`;
+                                }
+                            }
+                        }
+                        personDetailsContent.innerHTML = detailsHTML;
+                        personDetailsPanel.classList.remove('hidden');
+                        personDetailsPanel.classList.add('flex');
+                    } catch (err) {
+                        console.error("Failed to parse person details", err);
+                    }
+                }
                 
                 // Pre-compute child map for O(1) descendant lookups
                 const childMap = {};
@@ -1187,6 +1286,9 @@
             document.querySelectorAll('.legend-item').forEach(el => {
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
+            
+            personDetailsPanel.classList.add('hidden');
+            personDetailsPanel.classList.remove('flex');
             
             // Eğer daha önceden aktif değilse, listeyi aktif yap ve ilgili jenerasyonu vurgula
             if (!isActive) {
