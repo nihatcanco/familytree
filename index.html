@@ -51,22 +51,34 @@
         }
 
         /* Clean up connector lines for edge cases */
-        .tree-container li:first-child::before, .tree-container li:last-child::after {
+        .tree-container li:first-child::before,
+        .tree-container li.visual-first-child::before,
+        .tree-container li:last-child::after,
+        .tree-container li.visual-last-child::after {
             border: 0 none;
         }
-        .tree-container li:last-child::before {
+        .tree-container li:last-child::before,
+        .tree-container li.visual-last-child::before {
             border-radius: 0;
         }
-        .tree-container li:first-child::after {
+        .tree-container li:first-child::after,
+        .tree-container li.visual-first-child::after {
             border-radius: 0;
         }
 
         /* Keep consistent margin for only-child by drawing a direct vertical connector */
-        .tree-container li:only-child::before {
+        .tree-container li:only-child::before,
+        .tree-container li.visual-only-child::before {
             display: none;
         }
-        .tree-container li:only-child::after {
+        .tree-container li:only-child::after,
+        .tree-container li.visual-only-child::after {
             display: none;
+        }
+
+        /* Focus Mode */
+        .focus-hidden {
+            display: none !important;
         }
 
         /* Downward line from parent to children */
@@ -173,6 +185,9 @@
             <button id="btn-zoom-in" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom In">
                 <i data-lucide="zoom-in" class="w-5 h-5"></i>
             </button>
+            <button id="btn-focus" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex-1 flex justify-center" title="Focus">
+                <i data-lucide="focus" class="w-5 h-5"></i>
+            </button>
         </div>
 
         <!-- Generation Color Legend -->
@@ -232,6 +247,7 @@
         const btnZoomIn = document.getElementById('btn-zoom-in');
         const btnZoomOut = document.getElementById('btn-zoom-out');
         const btnZoomReset = document.getElementById('btn-zoom-reset');
+        const btnFocus = document.getElementById('btn-focus');
 
         const generationLegend = document.getElementById('generation-legend');
         const legendList = document.getElementById('legend-list');
@@ -243,6 +259,7 @@
 
         // State
         let currentZoom = 1;
+        let isFocusMode = false;
 
         // Initialize Lucide Icons on load
         lucide.createIcons();
@@ -292,9 +309,10 @@
             const cardClass = isSpouse ? 'spouse-card' : 'direct-relative-card';
             const personIdAttr = person.id ? `data-id="${person.id}"` : '';
             const parentIdsAttr = (person._parentIds && person._parentIds.length > 0) ? `data-parent-ids="${person._parentIds.join(',')}"` : '';
+            const spouseIdsAttr = (person._spouseIds && person._spouseIds.length > 0) ? `data-spouse-ids="${person._spouseIds.join(',')}"` : '';
             const genAttr = person._generation ? `data-generation="${person._generation}"` : '';
 
-            let html = `<div ${personIdAttr} ${parentIdsAttr} ${genAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer min-w-0 h-fit">
+            let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer min-w-0 h-fit">
                 <div class="text-[10px] text-slate-400 font-mono uppercase tracking-wider mb-1">ID: ${escapeHTML(person.id)}</div>
                 <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(person.name || "UNKNOWN")}</h3>`;
             
@@ -450,6 +468,7 @@
                 const result = { 
                     id: node.id,
                     _parentIds: node._parentIds,
+                    _spouseIds: node._spouseIds,
                     _generation: depth,
                     name: node.name, 
                     attributes: { ...node.attributes }, 
@@ -477,6 +496,32 @@
             }
 
             return roots.map(root => buildNode(root.id, false, 1)).filter(Boolean);
+        }
+
+        // Calculate vertical line heights and sync row heights for perfect marriage line connections
+        function syncRowHeights() {
+            document.querySelectorAll('.generation-wrapper').forEach(wrapper => {
+                    const columns = Array.from(wrapper.children);
+                    const cardWrappers = columns
+                        .map(col => col.querySelector('.relative.w-full.flex'))
+                        .filter(Boolean);
+                    
+                    let maxHeight = 0;
+                    cardWrappers.forEach(cw => {
+                        // Find the inner content container (the one without 'absolute' position)
+                        const innerContent = Array.from(cw.children).find(child => !child.classList.contains('absolute'));
+                        if (innerContent && innerContent.offsetHeight > maxHeight) {
+                            maxHeight = innerContent.offsetHeight;
+                        }
+                    });
+                    
+                    cardWrappers.forEach(cw => {
+                        cw.style.height = maxHeight + 'px';
+                    });
+
+                    // Dynamically set the upward line height so it connects exactly to the marriage line center
+                    wrapper.style.setProperty('--line-height', (20 + (maxHeight / 2)) + 'px');
+            });
         }
 
         // Fetch Data and Render Tree Logic
@@ -722,8 +767,164 @@
         });
 
         btnZoomReset.addEventListener('click', () => {
-            applyZoomFromCenter(1);
+            if (isFocusMode) {
+                fitTreeToScreen();
+            } else {
+                applyZoomFromCenter(1);
+            }
         });
+
+        function fitTreeToScreen() {
+            const treeW = treeTransform.offsetWidth;
+            const treeH = treeTransform.offsetHeight;
+            
+            if (treeW === 0 || treeH === 0) return;
+
+            const viewW = scrollContainer.clientWidth;
+            const viewH = scrollContainer.clientHeight;
+            
+            const padding = 80; // 40px each side
+            let newZoom = Math.min((viewW - padding) / treeW, (viewH - padding) / treeH);
+            currentZoom = Math.max(0.05, Math.min(newZoom, 1.2)); // Cap scale to not over-blow small trees
+            
+            updateZoomStyle();
+            scrollContainer.scrollLeft = (scrollContainer.scrollWidth - scrollContainer.clientWidth) / 2;
+            scrollContainer.scrollTop = (scrollContainer.scrollHeight - scrollContainer.clientHeight) / 2;
+        }
+
+        function toggleFocusMode(forceState) {
+            if (typeof forceState === 'boolean') {
+                if (isFocusMode === forceState) return;
+                isFocusMode = forceState;
+            } else {
+                isFocusMode = !isFocusMode;
+            }
+
+            if (btnFocus) {
+                if (isFocusMode) {
+                    btnFocus.classList.add('bg-blue-50', 'text-blue-600');
+                    btnFocus.classList.remove('text-slate-600');
+                } else {
+                    btnFocus.classList.remove('bg-blue-50', 'text-blue-600');
+                    btnFocus.classList.add('text-slate-600');
+                }
+            }
+
+            // Reset all hidden elements
+            document.querySelectorAll('.focus-hidden').forEach(el => el.classList.remove('focus-hidden'));
+
+            if (isFocusMode) {
+                const highlightedCards = document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse');
+                if (highlightedCards.length === 0) {
+                    isFocusMode = false;
+                    if (btnFocus) {
+                        btnFocus.classList.remove('bg-blue-50', 'text-blue-600');
+                        btnFocus.classList.add('text-red-500');
+                        setTimeout(() => {
+                            btnFocus.classList.remove('text-red-500');
+                            btnFocus.classList.add('text-slate-600');
+                        }, 500);
+                    }
+                    return;
+                }
+
+                // 1. Hide non-highlighted cards and their specific marriage lines
+                document.querySelectorAll('.tree-node-card').forEach(card => {
+                    if (!card.classList.contains('highlighted') && !card.classList.contains('highlighted-gen') && !card.classList.contains('highlighted-spouse')) {
+                        card.classList.add('focus-hidden');
+                        // Childless spouse inline marriage line
+                        if (card.classList.contains('spouse-card')) {
+                            const prev = card.previousElementSibling;
+                            if (prev && prev.classList.contains('marriage-line') && !prev.classList.contains('absolute')) {
+                                prev.classList.add('focus-hidden');
+                            }
+                        }
+                    }
+                });
+
+                // 2. Hide columns without visible cards
+                document.querySelectorAll('.generation-wrapper > .flex-col').forEach(col => {
+                    const visibleCards = col.querySelectorAll('.tree-node-card:not(.focus-hidden)');
+                    if (visibleCards.length === 0) {
+                        col.classList.add('focus-hidden');
+                    }
+                });
+
+                // 3. Hide list items without visible cards
+                document.querySelectorAll('li').forEach(li => {
+                    const visibleCards = li.querySelectorAll('.tree-node-card:not(.focus-hidden)');
+                    if (visibleCards.length === 0) {
+                        li.classList.add('focus-hidden');
+                    }
+                });
+
+                // 4. Clean up structural marriage lines
+                document.querySelectorAll('.generation-wrapper').forEach(wrapper => {
+                    const visibleCols = Array.from(wrapper.querySelectorAll(':scope > .flex-col:not(.focus-hidden)'));
+                    if (visibleCols.length <= 1) {
+                        wrapper.querySelectorAll('.marriage-line.absolute').forEach(line => line.classList.add('focus-hidden'));
+                    } else {
+                        const lastCol = visibleCols[visibleCols.length - 1];
+                        const rightLine = lastCol.querySelector('.marriage-line.right-0');
+                        if (rightLine) rightLine.classList.add('focus-hidden');
+
+                        const firstCol = visibleCols[0];
+                        const leftLine = firstCol.querySelector('.marriage-line.left-0');
+                        if (leftLine) leftLine.classList.add('focus-hidden');
+                    }
+                });
+            }
+
+            // 5. Update pseudo-element hook classes for visual layout
+            document.querySelectorAll('.visual-first-child, .visual-last-child, .visual-only-child').forEach(el => {
+                el.classList.remove('visual-first-child', 'visual-last-child', 'visual-only-child');
+            });
+
+            if (isFocusMode) {
+                document.querySelectorAll('ul').forEach(ul => {
+                    const visibleLis = Array.from(ul.children).filter(child => 
+                        child.tagName === 'LI' && !child.classList.contains('focus-hidden')
+                    );
+                    
+                    if (visibleLis.length === 1) {
+                        visibleLis[0].classList.add('visual-only-child');
+                    } else if (visibleLis.length > 1) {
+                        visibleLis[0].classList.add('visual-first-child');
+                        visibleLis[visibleLis.length - 1].classList.add('visual-last-child');
+                    }
+                });
+            }
+
+            // Recalculate physical dimensions and heights
+            syncRowHeights();
+            setTimeout(() => {
+                if (isFocusMode) {
+                    updateZoomStyle(); // re-eval physical dimensions for the wrapper
+                    fitTreeToScreen();
+                } else {
+                    currentZoom = 1;
+                    updateZoomStyle();
+                    
+                    const targetCard = document.querySelector('.tree-node-card.highlighted');
+                    if (targetCard) {
+                        const cardRect = targetCard.getBoundingClientRect();
+                        const treeRect = treeTransform.getBoundingClientRect();
+                        const containerRect = scrollContainer.getBoundingClientRect();
+                        
+                        const cardCenterX = (cardRect.left - treeRect.left) + (cardRect.width / 2);
+                        const cardCenterY = (cardRect.top - treeRect.top) + (cardRect.height / 2);
+                        
+                        scrollContainer.scrollLeft = cardCenterX - (containerRect.width / 2);
+                        scrollContainer.scrollTop = cardCenterY - (containerRect.height / 2);
+                    }
+                }
+                drawMinimap();
+            }, 50);
+        }
+
+        if (btnFocus) {
+            btnFocus.addEventListener('click', () => toggleFocusMode());
+        }
 
         // Zoom on mouse scroll wheel
         scrollContainer.addEventListener('wheel', (e) => {
@@ -832,7 +1033,7 @@
                 const w = rect.width / currentZoom;
                 const h = rect.height / currentZoom;
                 
-                if (card.classList.contains('highlighted') || card.classList.contains('highlighted-gen')) {
+                if (card.classList.contains('highlighted') || card.classList.contains('highlighted-gen') || card.classList.contains('highlighted-spouse')) {
                     ctx.fillStyle = card.style.getPropertyValue('--highlight-color').trim() || '#3b82f6';
                 } else {
                     ctx.fillStyle = '#475569'; // Darker slate for better contrast
@@ -875,14 +1076,16 @@
 
         // Node selection and bloodline highlighting logic
         treeRoot.addEventListener('click', (e) => {
+            if (isFocusMode) return;
+            
             const card = e.target.closest('.tree-node-card');
             if (!card) return;
             
             const isAlreadyHighlighted = card.classList.contains('highlighted');
             
             // Clear previous highlights
-            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen').forEach(el => {
-                el.classList.remove('highlighted', 'highlighted-gen');
+            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
+                el.classList.remove('highlighted', 'highlighted-gen', 'highlighted-spouse');
                 el.style.removeProperty('--highlight-color');
                 el.style.removeProperty('--highlight-shadow');
             });
@@ -943,16 +1146,32 @@
                     });
                 }
                 
+                function highlightSpouses(currentCard) {
+                    const spouseIdsAttr = currentCard.getAttribute('data-spouse-ids');
+                    if (spouseIdsAttr) {
+                        spouseIdsAttr.split(',').forEach(sid => {
+                            document.querySelectorAll(`.tree-node-card[data-id="${sid}"]`).forEach(spouseCard => {
+                                if (!spouseCard.classList.contains('highlighted-gen') && !spouseCard.classList.contains('highlighted') && !spouseCard.classList.contains('highlighted-spouse')) {
+                                    spouseCard.classList.add('highlighted-spouse');
+                                }
+                            });
+                        });
+                    }
+                }
+                
                 applyHighlightGen(card);
                 highlightAncestors(card);
                 highlightDescendants(card);
+                highlightSpouses(card);
             }
-
+            
             drawMinimap();
         });
 
         // Renk (Legend) listesinden jenerasyon seçilince tüm grubu vurgulama
         legendList.addEventListener('click', (e) => {
+            if (isFocusMode) return;
+            
             const item = e.target.closest('.legend-item');
             if (!item) return;
             
@@ -960,8 +1179,8 @@
             const isActive = item.classList.contains('active-legend');
             
             // Hem ağaçtaki hem de menüdeki mevcut vurguları temizle
-            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen').forEach(el => {
-                el.classList.remove('highlighted', 'highlighted-gen');
+            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
+                el.classList.remove('highlighted', 'highlighted-gen', 'highlighted-spouse');
                 el.style.removeProperty('--highlight-color');
                 el.style.removeProperty('--highlight-shadow');
             });
@@ -980,7 +1199,7 @@
                     card.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
                 });
             }
-
+            
             drawMinimap();
         });
 
