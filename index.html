@@ -27,8 +27,8 @@
         .tree-container li {
             text-align: center; 
             list-style-type: none;
-            position: relative; 
-            padding: 20px 10px 0 10px;
+            position: relative;
+            padding: 0 10px 0 10px; /* Remove top padding, space will be handled by margin */
             display: flex; 
             flex-direction: column; 
             align-items: center;
@@ -36,11 +36,11 @@
 
         /* Connector lines */
         .tree-container li::before, .tree-container li::after {
-            content: ''; 
-            position: absolute; 
-            top: 0; 
+            content: '';
+            position: absolute;
+            top: 0;
             right: 50%;
-            border-top: 2px solid #94a3b8; 
+            border-top: 2px solid #94a3b8;
             width: 50%; 
             height: 20px;
             z-index: 0;
@@ -73,11 +73,11 @@
         .tree-container ul ul::before {
             content: ''; 
             position: absolute; 
-            top: -20px; /* Move line up to connect with parent */
+            top: 0;
             left: calc(50% - 1px);
             border-left: 2px solid #94a3b8; 
             width: 0; 
-            height: 40px; /* Extend line down to children's connector */
+            height: 20px;
         }
 
         /* Connect generation group to parents (upward line, non-root nodes only) */
@@ -91,11 +91,14 @@
             z-index: 0;
         }
 
+        .generation-wrapper {
+            /* Add margin to create space for the connector lines above */
+            margin-top: 20px;
+        }
 
         /* Node card transitions */
         .tree-node-card {
             transition: all 0.2s ease-in-out;
-            min-height: 10em;
         }
         .tree-node-card:hover {
             transform: translateY(-2px);
@@ -186,6 +189,17 @@
             </div>
         </div>
         
+        <!-- Minimap -->
+        <div id="minimap-wrapper" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 h-[180px] mt-4">
+            <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
+                <span>Mini Harita</span>
+                <i data-lucide="map" class="w-3.5 h-3.5 text-slate-400"></i>
+            </div>
+            <div id="minimap-container" class="relative w-full flex-1 bg-slate-50 overflow-hidden border border-slate-200 rounded cursor-crosshair">
+                <canvas id="minimap-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                <div id="minimap-viewport" class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none transition-none shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" style="display: none;"></div>
+            </div>
+        </div>
     </div>
 
     <!-- Application Logic -->
@@ -221,6 +235,11 @@
 
         const generationLegend = document.getElementById('generation-legend');
         const legendList = document.getElementById('legend-list');
+
+        const minimapWrapper = document.getElementById('minimap-wrapper');
+        const minimapContainer = document.getElementById('minimap-container');
+        const minimapCanvas = document.getElementById('minimap-canvas');
+        const minimapViewport = document.getElementById('minimap-viewport');
 
         // State
         let currentZoom = 1;
@@ -275,8 +294,7 @@
             const parentIdsAttr = (person._parentIds && person._parentIds.length > 0) ? `data-parent-ids="${person._parentIds.join(',')}"` : '';
             const genAttr = person._generation ? `data-generation="${person._generation}"` : '';
 
-            
-            let html = `<div ${personIdAttr} ${parentIdsAttr} ${genAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer">
+            let html = `<div ${personIdAttr} ${parentIdsAttr} ${genAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] text-center relative z-10 cursor-pointer min-w-0 h-fit">
                 <div class="text-[10px] text-slate-400 font-mono uppercase tracking-wider mb-1">ID: ${escapeHTML(person.id)}</div>
                 <h3 class="font-bold text-slate-900 text-lg mb-1 hover:opacity-80 transition-opacity">${escapeHTML(person.name || "UNKNOWN")}</h3>`;
             
@@ -290,7 +308,7 @@
                             </div>`;
                     } else {
                         html += `
-                            <div class="bg-white/70 px-2 py-1 rounded-md text-left overflow-hidden text-ellipsis whitespace-nowrap" title="${escapeHTML(key)}: ${escapeHTML(value)}">
+                            <div class="bg-white/70 px-2 py-1 rounded-md text-left whitespace-normal break-words" title="${escapeHTML(key)}: ${escapeHTML(value)}">
                                 <span class="font-semibold text-slate-800 capitalize">${escapeHTML(key)}:</span> ${escapeHTML(value)}
                             </div>`;
                     }
@@ -316,9 +334,10 @@
                     
                     <!-- Main Node Column -->
                     <div class="flex flex-col items-center relative z-10">
-                        <div class="relative w-full flex justify-center items-stretch">
+                        <div class="relative w-full flex justify-center items-center">
                             ${hasSpousesWithChildren ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>` : ''}
-                            <div class="flex items-stretch relative z-10">
+                            ${hasDirectChildren ? `<div class="absolute top-1/2 bottom-0 left-[calc(50%-1px)] border-l-2 border-slate-400 z-0"></div>` : ''}
+                            <div class="flex items-center relative z-10">
                                 ${generateCardHTML(node, false)}`;
             
             // Childless Spouses (rendered immediately next to the main node)
@@ -348,12 +367,13 @@
                     html += `
                     <!-- SPOUSE COLUMN -->
                     <div class="flex flex-col items-center relative z-10">
-                        <div class="relative w-full flex justify-center items-stretch">
+                        <div class="relative w-full flex justify-center items-center">
                             <!-- Connect to previous column -->
                             <div class="absolute top-1/2 left-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>
                             <!-- Connect to next column -->
                             ${isNotLast ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>` : ''}
                             
+                            ${(spouse.children && Array.isArray(spouse.children) && spouse.children.length > 0) ? `<div class="absolute top-1/2 bottom-0 left-[calc(50%-1px)] border-l-2 border-slate-400 z-0"></div>` : ''}
                             ${generateCardHTML(spouse, true)}
                         </div>`; // Close Spouse Card wrapper
                         
@@ -538,6 +558,11 @@
                 generationLegend.classList.remove('hidden');
                 generationLegend.classList.add('flex');
 
+                if (minimapWrapper) {
+                    minimapWrapper.classList.remove('hidden');
+                    minimapWrapper.classList.add('flex');
+                }
+
                 // Dynamically populate Color Legend based on actual generations in the tree
                 let maxGen = 1;
                 document.querySelectorAll('.tree-node-card[data-generation]').forEach(card => {
@@ -561,22 +586,43 @@
                     else legendNote.classList.add('hidden');
                 }
 
-                    // Calculate vertical line heights and sync row heights for perfect marriage line connections
-                document.querySelectorAll('.generation-wrapper').forEach(wrapper => {
-                        const columns = Array.from(wrapper.children);
-                        const cardWrappers = columns
-                            .map(col => col.querySelector('.relative.w-full.flex'))
-                            .filter(Boolean);
-                        
-                        let maxHeight = 0;
-                        cardWrappers.forEach(cw => {
-                            cw.style.height = 'auto'; // Reset before calculating
-                            if (cw.offsetHeight > maxHeight) maxHeight = cw.offsetHeight;
-                        });
-                        
-                        cardWrappers.forEach(cw => {
-                            cw.style.height = maxHeight + 'px';
-                        });
+                // Calculate vertical line heights and sync row heights for perfect marriage line connections
+                function syncRowHeights() {
+                    document.querySelectorAll('.generation-wrapper').forEach(wrapper => {
+                            const columns = Array.from(wrapper.children);
+                            const cardWrappers = columns
+                                .map(col => col.querySelector('.relative.w-full.flex'))
+                                .filter(Boolean);
+                            
+                            let maxHeight = 0;
+                            cardWrappers.forEach(cw => {
+                                // Find the inner content container (the one without 'absolute' position)
+                                const innerContent = Array.from(cw.children).find(child => !child.classList.contains('absolute'));
+                                if (innerContent && innerContent.offsetHeight > maxHeight) {
+                                    maxHeight = innerContent.offsetHeight;
+                                }
+                            });
+                            
+                            cardWrappers.forEach(cw => {
+                                cw.style.height = maxHeight + 'px';
+                            });
+
+                            // Dynamically set the upward line height so it connects exactly to the marriage line center
+                            wrapper.style.setProperty('--line-height', (20 + (maxHeight / 2)) + 'px');
+                    });
+                }
+                
+                syncRowHeights();
+                
+                // Ensure heights stay perfectly synced when text wraps, window resizes, or fonts load
+                const resizeObserver = new ResizeObserver(() => {
+                    syncRowHeights();
+                    drawMinimap();
+                });
+                
+                // Observe all tree node cards for intrinsic size changes
+                document.querySelectorAll('.tree-node-card').forEach(card => {
+                    resizeObserver.observe(card);
                 });
 
                 // Crucial: Re-initialize Lucide icons for dynamically injected elements
@@ -585,9 +631,31 @@
                 // Call update on initial render to calculate base physical bounds
                 updateZoomStyle();
 
-                // Center the tree horizontally and align to the top on initial load
-                scrollContainer.scrollLeft = (scrollContainer.scrollWidth - scrollContainer.clientWidth) / 2;
-                scrollContainer.scrollTop = 0;
+                // Delay scrolling until the browser has finished painting the initial layout.
+                // This ensures getBoundingClientRect() returns the final, correct positions.
+                setTimeout(() => {
+                    const targetCard = document.querySelector('.family-root .tree-node-card');
+
+                    if (targetCard) {
+                        const cardRect = targetCard.getBoundingClientRect();
+                        const treeRect = treeTransform.getBoundingClientRect();
+                        const containerRect = scrollContainer.getBoundingClientRect();
+                        
+                        // Center the card in the viewport
+                        const cardCenterX = (cardRect.left - treeRect.left) + (cardRect.width / 2);
+                        const cardCenterY = (cardRect.top - treeRect.top) + (cardRect.height / 2);
+                        
+                        scrollContainer.scrollLeft = cardCenterX - (containerRect.width / 2);
+                        scrollContainer.scrollTop = cardCenterY - (containerRect.height / 2);
+                    } else {
+                        // Fallback to centering the whole tree if no card is found
+                        scrollContainer.scrollLeft = (scrollContainer.scrollWidth - scrollContainer.clientWidth) / 2;
+                        scrollContainer.scrollTop = 0;
+                    }
+                }, 100);
+
+                // Slight delay to ensure layout is physically finished before rendering minimap
+                setTimeout(drawMinimap, 100);
 
             } catch (err) {
                 errorText.textContent = err.message;
@@ -623,21 +691,38 @@
                 scrollContainer.scrollLeft = newScrollLeft;
                 scrollContainer.scrollTop = newScrollTop;
             }
+            
+            updateMinimapViewport();
+        }
+
+        function applyZoomFromCenter(newZoom) {
+            const oldZoom = currentZoom;
+            if (newZoom === oldZoom) return;
+            
+            currentZoom = newZoom;
+            
+            // Calculate center of the viewport
+            const centerX = scrollContainer.clientWidth / 2;
+            const centerY = scrollContainer.clientHeight / 2;
+            
+            // Calculate new scroll position to keep the center stationary
+            const zoomRatio = currentZoom / oldZoom;
+            const newScrollLeft = (scrollContainer.scrollLeft + centerX) * zoomRatio - centerX;
+            const newScrollTop = (scrollContainer.scrollTop + centerY) * zoomRatio - centerY;
+            
+            updateZoomStyle(newScrollLeft, newScrollTop);
         }
 
         btnZoomIn.addEventListener('click', () => {
-            currentZoom = Math.min(currentZoom + 0.2, 2);
-            updateZoomStyle();
+            applyZoomFromCenter(Math.min(currentZoom + 0.2, 2));
         });
 
         btnZoomOut.addEventListener('click', () => {
-            currentZoom = Math.max(currentZoom - 0.2, 0.05);
-            updateZoomStyle();
+            applyZoomFromCenter(Math.max(currentZoom - 0.2, 0.05));
         });
 
         btnZoomReset.addEventListener('click', () => {
-            currentZoom = 1;
-            updateZoomStyle();
+            applyZoomFromCenter(1);
         });
 
         // Zoom on mouse scroll wheel
@@ -715,6 +800,79 @@
             scrollContainer.scrollTop = initialScrollTop - walkY;
         });
 
+        // Minimap Drawing and Interaction
+        function drawMinimap() {
+            if (!minimapContainer || !minimapCanvas) return;
+            const ctx = minimapCanvas.getContext('2d');
+            
+            minimapCanvas.width = minimapContainer.clientWidth;
+            minimapCanvas.height = minimapContainer.clientHeight;
+            
+            const treeRect = treeTransform.getBoundingClientRect();
+            const treeWidth = treeRect.width / currentZoom;
+            const treeHeight = treeRect.height / currentZoom;
+            
+            if (treeWidth === 0 || treeHeight === 0) return;
+
+            const padding = 10; 
+            const scaleX = (minimapCanvas.width - padding * 2) / treeWidth;
+            const scaleY = (minimapCanvas.height - padding * 2) / treeHeight;
+            const minimapScale = Math.min(scaleX, scaleY);
+            
+            const offsetX = (minimapCanvas.width - treeWidth * minimapScale) / 2;
+            const offsetY = (minimapCanvas.height - treeHeight * minimapScale) / 2;
+            
+            ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+            minimapContainer._metrics = { minimapScale, offsetX, offsetY, treeWidth, treeHeight };
+            
+            document.querySelectorAll('.tree-node-card').forEach(card => {
+                const rect = card.getBoundingClientRect();
+                const x = (rect.left - treeRect.left) / currentZoom;
+                const y = (rect.top - treeRect.top) / currentZoom;
+                const w = rect.width / currentZoom;
+                const h = rect.height / currentZoom;
+                
+                if (card.classList.contains('highlighted') || card.classList.contains('highlighted-gen')) {
+                    ctx.fillStyle = card.style.getPropertyValue('--highlight-color').trim() || '#3b82f6';
+                } else {
+                    ctx.fillStyle = '#475569'; // Darker slate for better contrast
+                }
+                ctx.fillRect(offsetX + x * minimapScale, offsetY + y * minimapScale, w * minimapScale, h * minimapScale);
+            });
+            
+            updateMinimapViewport();
+        }
+
+        function updateMinimapViewport() {
+            if (!minimapContainer || !minimapViewport || !minimapContainer._metrics) return;
+            const metrics = minimapContainer._metrics;
+            minimapViewport.style.display = 'block';
+            
+            const scrollRect = scrollContainer.getBoundingClientRect();
+            const treeRect = treeTransform.getBoundingClientRect();
+            
+            const visibleLeftOnTree = scrollRect.left - treeRect.left;
+            const visibleTopOnTree = scrollRect.top - treeRect.top;
+            
+            const unscaledScrollX = visibleLeftOnTree / currentZoom;
+            const unscaledScrollY = visibleTopOnTree / currentZoom;
+            const unscaledVisibleW = scrollRect.width / currentZoom;
+            const unscaledVisibleH = scrollRect.height / currentZoom;
+            
+            let mapX = metrics.offsetX + unscaledScrollX * metrics.minimapScale;
+            let mapY = metrics.offsetY + unscaledScrollY * metrics.minimapScale;
+            let mapW = unscaledVisibleW * metrics.minimapScale;
+            let mapH = unscaledVisibleH * metrics.minimapScale;
+            
+            minimapViewport.style.left = `${mapX}px`;
+            minimapViewport.style.top = `${mapY}px`;
+            minimapViewport.style.width = `${mapW}px`;
+            minimapViewport.style.height = `${mapH}px`;
+        }
+
+        scrollContainer.addEventListener('scroll', updateMinimapViewport);
+        window.addEventListener('resize', drawMinimap);
+
         // Node selection and bloodline highlighting logic
         treeRoot.addEventListener('click', (e) => {
             const card = e.target.closest('.tree-node-card');
@@ -789,6 +947,8 @@
                 highlightAncestors(card);
                 highlightDescendants(card);
             }
+
+            drawMinimap();
         });
 
         // Renk (Legend) listesinden jenerasyon seçilince tüm grubu vurgulama
@@ -819,6 +979,50 @@
                     card.style.setProperty('--highlight-color', colorObj.hex);
                     card.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
                 });
+            }
+
+            drawMinimap();
+        });
+
+        // Drag logic for Minimap
+        let isMinimapDragging = false;
+        function scrollToMinimapPos(e) {
+            const metrics = minimapContainer._metrics;
+            if (!metrics) return;
+            
+            const rect = minimapContainer.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            
+            const targetUnscaledX = (clickX - metrics.offsetX) / metrics.minimapScale;
+            const targetUnscaledY = (clickY - metrics.offsetY) / metrics.minimapScale;
+            
+            const scrollRect = scrollContainer.getBoundingClientRect();
+            const unscaledVisibleW = scrollRect.width / currentZoom;
+            const unscaledVisibleH = scrollRect.height / currentZoom;
+            
+            const treeRect = treeTransform.getBoundingClientRect();
+            const currentVisibleLeftOnTree = (scrollRect.left - treeRect.left) / currentZoom;
+            const currentVisibleTopOnTree = (scrollRect.top - treeRect.top) / currentZoom;
+            
+            const currentCenterX = currentVisibleLeftOnTree + (unscaledVisibleW / 2);
+            const currentCenterY = currentVisibleTopOnTree + (unscaledVisibleH / 2);
+            
+            scrollContainer.scrollLeft += (targetUnscaledX - currentCenterX) * currentZoom;
+            scrollContainer.scrollTop += (targetUnscaledY - currentCenterY) * currentZoom;
+        }
+
+        minimapContainer.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            isMinimapDragging = true;
+            scrollToMinimapPos(e);
+            e.preventDefault(); // prevent selection while dragging map
+        });
+        window.addEventListener('mouseup', () => { isMinimapDragging = false; });
+        window.addEventListener('mousemove', (e) => {
+            if (isMinimapDragging) {
+                scrollToMinimapPos(e);
+                e.preventDefault();
             }
         });
 
