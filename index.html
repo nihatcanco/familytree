@@ -207,6 +207,9 @@
         <!-- Search -->
         <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden items-center justify-center mb-6 shrink-0">
             <input type="text" id="search-input" placeholder="Ara..." class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
+            <button id="btn-search-clear" class="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer hidden justify-center shrink-0" title="Temizle">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
             <button id="btn-search-prev" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex justify-center shrink-0" title="Önceki Sonuç">
                 <i data-lucide="chevron-up" class="w-4 h-4"></i>
             </button>
@@ -219,7 +222,11 @@
         <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 mb-4">
             <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
                 <span>Kişi Detayları</span>
-                <i data-lucide="user" class="w-3.5 h-3.5 text-slate-400"></i>
+                <div class="flex items-center gap-1.5">
+                    <button id="btn-close-details" class="p-1 -mr-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Kapat">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
             </div>
             <div id="person-details-content" class="flex flex-col gap-2 text-xs text-slate-600">
                 <!-- Populated by JS -->
@@ -229,8 +236,7 @@
         <!-- Generation Color Legend -->
         <div id="generation-legend" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col flex-1 min-h-0 overflow-hidden">
             <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
-                <span>Renkler</span>
-                <i data-lucide="palette" class="w-3.5 h-3.5 text-slate-400"></i>
+                <span>Nesiller</span>
             </div>
             <div id="legend-list" class="flex flex-col gap-2 text-xs text-slate-600 overflow-y-auto custom-scrollbar pr-1 pb-1">
                 <!-- Populated by JS -->
@@ -286,11 +292,13 @@
         const btnFocus = document.getElementById('btn-focus');
 
         const searchInput = document.getElementById('search-input');
+        const btnSearchClear = document.getElementById('btn-search-clear');
         const btnSearchPrev = document.getElementById('btn-search-prev');
         const btnSearchNext = document.getElementById('btn-search-next');
 
         const personDetailsPanel = document.getElementById('person-details-panel');
         const personDetailsContent = document.getElementById('person-details-content');
+        const btnCloseDetails = document.getElementById('btn-close-details');
 
         const generationLegend = document.getElementById('generation-legend');
         const legendList = document.getElementById('legend-list');
@@ -1307,6 +1315,26 @@
             drawMinimap();
         });
 
+        // Close Person Details Panel
+        btnCloseDetails.addEventListener('click', () => {
+            if (isFocusMode) toggleFocusMode(false);
+            
+            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
+                el.classList.remove('highlighted', 'highlighted-gen', 'highlighted-spouse');
+                el.style.removeProperty('--highlight-color');
+                el.style.removeProperty('--highlight-shadow');
+            });
+            
+            document.querySelectorAll('.legend-item').forEach(el => {
+                el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
+            });
+            
+            personDetailsPanel.classList.add('hidden');
+            personDetailsPanel.classList.remove('flex');
+            
+            drawMinimap();
+        });
+
         // Renk (Legend) listesinden jenerasyon seçilince tüm grubu vurgulama
         legendList.addEventListener('click', (e) => {
             if (isFocusMode) return;
@@ -1391,6 +1419,15 @@
         function performSearch() {
             const query = searchInput.value.trim().toLocaleLowerCase('tr-TR');
             
+            // Temizle butonunu göster/gizle
+            if (query.length > 0) {
+                btnSearchClear.classList.remove('hidden');
+                btnSearchClear.classList.add('flex');
+            } else {
+                btnSearchClear.classList.add('hidden');
+                btnSearchClear.classList.remove('flex');
+            }
+
             document.querySelectorAll('.search-match').forEach(el => el.classList.remove('search-match'));
             searchResults = [];
             currentSearchIndex = -1;
@@ -1460,6 +1497,12 @@
         }
 
         searchInput.addEventListener('input', performSearch);
+
+        btnSearchClear.addEventListener('click', () => {
+            searchInput.value = '';
+            performSearch();
+            searchInput.focus();
+        });
         
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
