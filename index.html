@@ -16,6 +16,7 @@
         .tree-container {
             display: inline-block;
             /* Removed min-width: 100% to allow exact unscaled width calculations */
+            will-change: transform;
         }
         .tree-container ul {
             padding-top: 20px; 
@@ -177,7 +178,8 @@
                     class="tree-container absolute top-0 left-0 w-max"
                     style="transform-origin: top left; transform: scale(1);"
                 >
-                    <div id="tree-root" class="w-max mx-auto">
+                    <svg id="cross-tree-links" class="absolute top-0 left-0 w-full h-full pointer-events-none overflow-visible" style="z-index: 0;"></svg>
+                    <div id="tree-root" class="w-max mx-auto relative z-10">
                         <!-- Tree will be rendered here -->
                     </div>
                 </div>
@@ -505,7 +507,8 @@
                     _parentIds: [],
                     _spouseIds: [],
                     _visited: false,
-                    _addedAsChild: false
+                    _addedAsChild: false,
+                    _generation: null
                 };
                 
                 node._parentIds = parseIds(row.parentIds);
@@ -519,6 +522,64 @@
                 if (row.note) node.attributes.note = row.note;
                 
                 nodeMap.set(Number(row.id), node);
+            });
+
+            // Hızlı erişim için çocuk haritası oluşturma (O(1) lookup)
+            const childMap = new Map();
+            nodeMap.forEach(n => {
+                n._parentIds.forEach(pid => {
+                    const pNum = Number(pid);
+                    if (!childMap.has(pNum)) childMap.set(pNum, []);
+                    childMap.get(pNum).push(n);
+                });
+            });
+
+            // Global Jenerasyon Senkronizasyonu (Tüm farklı kökleri ve çapraz bağları hizalar)
+            nodeMap.forEach((startNode) => {
+                if (startNode._generation !== null) return; // Zaten işlenmişse atla
+                
+                startNode._generation = 0;
+                const queue = [startNode];
+                const componentNodes = [startNode];
+                
+                while(queue.length > 0) {
+                    const current = queue.shift();
+                    
+                    // Çocuklara jenerasyon (n + 1) ata
+                    const children = childMap.get(Number(current.id)) || [];
+                    children.forEach(child => {
+                        if (child._generation === null) {
+                            child._generation = current._generation + 1;
+                            queue.push(child);
+                            componentNodes.push(child);
+                        }
+                    });
+                    
+                    // Ebeveynlere jenerasyon (n - 1) ata
+                    current._parentIds.forEach(pid => {
+                        const parent = nodeMap.get(Number(pid));
+                        if (parent && parent._generation === null) {
+                            parent._generation = current._generation - 1;
+                            queue.push(parent);
+                            componentNodes.push(parent);
+                        }
+                    });
+                    
+                    // Eşlere aynı jenerasyonu ata
+                    current._spouseIds.forEach(sid => {
+                        const spouse = nodeMap.get(Number(sid));
+                        if (spouse && spouse._generation === null) {
+                            spouse._generation = current._generation;
+                            queue.push(spouse);
+                            componentNodes.push(spouse);
+                        }
+                    });
+                }
+                
+                // En düşük jenerasyonun 1 olmasını sağlayarak değerleri normalize et
+                const minGen = Math.min(...componentNodes.map(n => n._generation));
+                const offset = 1 - minGen;
+                componentNodes.forEach(n => n._generation += offset);
             });
 
             const roots = [];
@@ -538,7 +599,7 @@
                 }
             });
 
-            function buildNode(nodeId, asSpouse = false, depth = 1) {
+            function buildNode(nodeId, asSpouse = false) {
                 const node = nodeMap.get(Number(nodeId));
                 if (!node) return null;
                 
@@ -550,7 +611,7 @@
                     id: node.id,
                     _parentIds: node._parentIds,
                     _spouseIds: node._spouseIds,
-                    _generation: depth,
+                    _generation: node._generation,
                     name: node.name, 
                     photoUrl: node.photoUrl,
                     attributes: { ...node.attributes }, 
@@ -559,10 +620,11 @@
                 };
 
                 // 1. Claim direct children first so they fall under the correct parent
-                nodeMap.forEach(potentialChild => {
-                    if (potentialChild._parentIds.map(Number).includes(Number(node.id)) && !potentialChild._addedAsChild) {
+                const children = childMap.get(Number(node.id)) || [];
+                children.forEach(potentialChild => {
+                    if (!potentialChild._addedAsChild) {
                         potentialChild._addedAsChild = true;
-                        const childNode = buildNode(potentialChild.id, false, depth + 1);
+                        const childNode = buildNode(potentialChild.id, false);
                         if (childNode) result.children.push(childNode);
                     }
                 });
@@ -570,14 +632,14 @@
                 // 2. Attach spouses
                 if (!asSpouse) {
                     node._spouseIds.forEach(spouseId => {
-                        const spouseNode = buildNode(spouseId, true, depth);
+                        const spouseNode = buildNode(spouseId, true);
                         if (spouseNode) result.spouses.push(spouseNode);
                     });
                 }
                 return result;
             }
 
-            return roots.map(root => buildNode(root.id, false, 1)).filter(Boolean);
+            return roots.map(root => buildNode(root.id, false)).filter(Boolean);
         }
 
         // Calculate vertical line heights and sync row heights for perfect marriage line connections
@@ -603,6 +665,146 @@
 
                     // Dynamically set the upward line height so it connects exactly to the marriage line center
                     wrapper.style.setProperty('--line-height', (20 + (maxHeight / 2)) + 'px');
+            });
+            
+            if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
+        }
+
+        // --- Cross Tree Linking Logic ---
+        function drawCrossLink(svg, x1, y1, x2, y2, type, color = '#94a3b8', sharedMidY = null) {
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            
+            let d = '';
+            
+            if (type === 'parent-child') {
+                const midY = sharedMidY !== null ? sharedMidY : (y1 + y2) / 2;
+                d = `M ${x1},${y1} L ${x1},${midY} L ${x2},${midY} L ${x2},${y2}`;
+            } else {
+                const midX = (x1 + x2) / 2;
+                d = `M ${x1},${y1} L ${midX},${y1} L ${midX},${y2} L ${x2},${y2}`;
+            }
+            
+            path.setAttribute('d', d);
+            path.setAttribute('stroke', color);
+            path.setAttribute('stroke-width', '2');
+            path.setAttribute('fill', 'none');
+            
+            svg.appendChild(path);
+        }
+
+        function drawCrossTreeLinks() {
+            const svg = document.getElementById('cross-tree-links');
+            if (!svg || !treeTransform) return;
+            
+            svg.innerHTML = '';
+            
+            const treeRect = treeTransform.getBoundingClientRect();
+            if (currentZoom <= 0 || treeRect.width === 0) return;
+            
+            const nodeElements = {};
+            document.querySelectorAll('.tree-node-card[data-id]:not(.focus-hidden)').forEach(card => {
+                nodeElements[card.getAttribute('data-id')] = card;
+            });
+            
+            // Batch read bounding boxes to prevent layout thrashing and keep performance high
+            const nodeRects = {};
+            Object.values(nodeElements).forEach(card => {
+                nodeRects[card.getAttribute('data-id')] = card.getBoundingClientRect();
+            });
+            
+            const drawnSpouseLines = new Set();
+            
+            const getCenter = (rect) => ({
+                x: (rect.left - treeRect.left) / currentZoom + rect.width / 2 / currentZoom,
+                y: (rect.top - treeRect.top) / currentZoom + rect.height / 2 / currentZoom
+            });
+            
+            Object.values(nodeElements).forEach(card => {
+                const id = card.getAttribute('data-id');
+                const cardRect = nodeRects[id];
+                const center = getCenter(cardRect);
+                
+                // Look for cross-tree spouses
+                const spouseIds = card.getAttribute('data-spouse-ids');
+                if (spouseIds) {
+                    spouseIds.split(',').forEach(sId => {
+                        if (!sId) return;
+                        const lineKey = [id, sId].sort().join('-');
+                        if (drawnSpouseLines.has(lineKey)) return;
+                        
+                        const spouseCard = nodeElements[sId];
+                        if (spouseCard) {
+                            const myWrapper = card.closest('.generation-wrapper');
+                            const spouseWrapper = spouseCard.closest('.generation-wrapper');
+                            
+                            // If they are not in the same visual grouping, draw a cross-tree link
+                            if (myWrapper !== spouseWrapper) {
+                                drawnSpouseLines.add(lineKey);
+                                const sRect = nodeRects[sId];
+                                const sCenter = getCenter(sRect);
+                                
+                                let lineColor = '#94a3b8';
+                                const rootEl = card.closest('.family-root');
+                                if (rootEl) {
+                                    const val = rootEl.style.getPropertyValue('--tree-line-color');
+                                    if (val) lineColor = val.trim();
+                                }
+                                drawCrossLink(svg, center.x, center.y, sCenter.x, sCenter.y, 'spouse', lineColor);
+                            }
+                        }
+                    });
+                }
+                
+                // Look for cross-tree parents
+                const parentIds = card.getAttribute('data-parent-ids');
+                if (parentIds) {
+                    const crossParents = [];
+                    parentIds.split(',').forEach(pId => {
+                        if (!pId) return;
+                        const parentCard = nodeElements[pId];
+                        if (parentCard) {
+                            const myUl = card.closest('ul');
+                            const isStructurallyChild = myUl && myUl.previousElementSibling && myUl.previousElementSibling.contains(parentCard);
+                            
+                            // If the connection isn't captured by normal tree layout, bridge the gap visually
+                            if (!isStructurallyChild) {
+                                crossParents.push(pId);
+                            }
+                        }
+                    });
+
+                    if (crossParents.length > 0) {
+                        let maxBottomY = 0;
+                        let parentLineColor = '#94a3b8';
+                        
+                        // İlk döngü: Ortak yüksekliği (midY) ve soy rengini belirle
+                        crossParents.forEach(pId => {
+                            const pRect = nodeRects[pId];
+                            const bottomY = (pRect.bottom - treeRect.top) / currentZoom;
+                            if (bottomY > maxBottomY) maxBottomY = bottomY;
+                            
+                            const pCard = nodeElements[pId];
+                            if (pCard && parentLineColor === '#94a3b8') {
+                                const pRoot = pCard.closest('.family-root');
+                                if (pRoot) {
+                                    const val = pRoot.style.getPropertyValue('--tree-line-color');
+                                    if (val) parentLineColor = val.trim();
+                                }
+                            }
+                        });
+                        
+                        const myTopY = (cardRect.top - treeRect.top) / currentZoom;
+                        const sharedMidY = (maxBottomY + myTopY) / 2;
+                        
+                        // İkinci döngü: Her bir ebeveynden başlayıp, kusursuz ortak yatay eksende çocuğu bağla
+                        crossParents.forEach(pId => {
+                            const pRect = nodeRects[pId];
+                            const pCenter = getCenter(pRect);
+                            const bottomY = (pRect.bottom - treeRect.top) / currentZoom;
+                            drawCrossLink(svg, pCenter.x, bottomY, center.x, myTopY, 'parent-child', parentLineColor, sharedMidY);
+                        });
+                    }
+                }
             });
         }
 
@@ -672,8 +874,21 @@
                 }
                 
                 let rootsHTML = '<div class="roots-container">';
-                roots.forEach(root => {
-                    rootsHTML += `<ul class="family-root m-0 p-0 flex justify-center">${generateNodeHTML(root)}</ul>`;
+                const treeLineColors = [
+                    '#64748b', // 1: Arduvaz (Default)
+                    '#ef4444', // 2: Kırmızı
+                    '#3b82f6', // 3: Mavi
+                    '#10b981', // 4: Zümrüt
+                    '#f59e0b', // 5: Kehribar
+                    '#8b5cf6', // 6: Menekşe
+                    '#06b6d4', // 7: Camgöbeği
+                    '#ec4899', // 8: Pembe
+                    '#84cc16'  // 9: Limon Yeşili
+                ];
+                
+                roots.forEach((root, index) => {
+                    const color = treeLineColors[index % treeLineColors.length];
+                    rootsHTML += `<ul class="family-root m-0 p-0 flex justify-center" style="--tree-line-color: ${color};">${generateNodeHTML(root)}</ul>`;
                 });
                 rootsHTML += '</div>';
 
@@ -737,14 +952,20 @@
                             // Dynamically set the upward line height so it connects exactly to the marriage line center
                             wrapper.style.setProperty('--line-height', (20 + (maxHeight / 2)) + 'px');
                     });
+                    
+                    if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
                 }
                 
                 syncRowHeights();
                 
                 // Ensure heights stay perfectly synced when text wraps, window resizes, or fonts load
+                let resizeTimeout = null;
                 const resizeObserver = new ResizeObserver(() => {
-                    syncRowHeights();
-                    drawMinimap();
+                    if (resizeTimeout) clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(() => {
+                        syncRowHeights();
+                        drawMinimap();
+                    }, 50);
                 });
                 
                 // Observe all tree node cards for intrinsic size changes
@@ -801,12 +1022,12 @@
 
         // Zoom Functions
         function updateZoomStyle(newScrollLeft = null, newScrollTop = null) {
-            treeTransform.style.transform = `scale(${currentZoom})`;
-            
             // Calculate and explicitly set the wrapper's physical dimensions.
-            // This forces the scrollbars to recognize the new scaled size, completely preventing clipping!
+            // IMPORTANT: Read offsetWidth/Height BEFORE setting style.transform to avoid synchronous reflows!
             const unscaledWidth = treeTransform.offsetWidth;
             const unscaledHeight = treeTransform.offsetHeight;
+            
+            treeTransform.style.transform = `scale(${currentZoom})`;
             
             const wrapper = document.getElementById('scale-wrapper');
             if (wrapper) {
