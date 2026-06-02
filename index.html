@@ -41,7 +41,7 @@
             position: absolute;
             top: 0;
             right: 50%;
-            border-top: 2px solid #94a3b8;
+            border-top: 2px solid var(--tree-line-color, #94a3b8);
             width: 50%; 
             height: 20px;
             z-index: 0;
@@ -96,7 +96,7 @@
             position: absolute; 
             top: 0;
             left: calc(50% - 1px);
-            border-left: 2px solid #94a3b8; 
+            border-left: 2px solid var(--tree-line-color, #94a3b8); 
             width: 0; 
             height: 20px;
         }
@@ -108,7 +108,7 @@
             top: -20px; /* Go up into the li's padding-top */
             height: var(--line-height, 60px); /* Dynamically set via JS to perfectly touch marriage lines */
             left: calc(50% - 1px);
-            border-left: 2px solid #94a3b8;
+            border-left: 2px solid var(--tree-line-color, #94a3b8);
             z-index: 0;
         }
 
@@ -157,6 +157,27 @@
             outline-offset: 2px;
         }
 
+        /* Glowing lines for highlighted tree paths */
+        .glow-line {
+            background-color: #22c55e !important;
+            border-color: #22c55e !important;
+            box-shadow: 0 0 6px 1px rgba(34, 197, 94, 0.6) !important;
+            z-index: 20 !important;
+        }
+        ul.glow-down::before,
+        .generation-wrapper.glow-up::before,
+        li.glow-horizontal::before, 
+        li.glow-horizontal::after, 
+        li.glow-horizontal-left::before, 
+        li.glow-horizontal-right::after {
+            border-color: #22c55e !important;
+            filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.8)) !important;
+            z-index: 20 !important;
+        }
+        .svg-glow-line {
+            stroke: #22c55e !important;
+            filter: drop-shadow(0 0 4px #22c55e);
+        }
     </style>
 </head>
 <body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative flex bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] select-none">
@@ -435,8 +456,8 @@
                     <!-- Main Node Column -->
                     <div class="flex flex-col items-center relative z-10">
                         <div class="relative w-full flex justify-center items-center">
-                            ${hasSpousesWithChildren ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>` : ''}
-                            ${hasDirectChildren ? `<div class="absolute top-1/2 bottom-0 left-[calc(50%-1px)] border-l-2 border-slate-400 z-0"></div>` : ''}
+                            ${hasSpousesWithChildren ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-[var(--tree-line-color,#94a3b8)] -translate-y-1/2 z-0 marriage-line"></div>` : ''}
+                            ${hasDirectChildren ? `<div class="absolute top-1/2 bottom-0 left-[calc(50%-1px)] border-l-2 border-[var(--tree-line-color,#94a3b8)] z-0 vertical-tree-line"></div>` : ''}
                             <div class="flex items-center relative z-10">
                                 ${generateCardHTML(node, false)}`;
             
@@ -444,7 +465,7 @@
             if (spousesWithoutChildren.length > 0) {
                 spousesWithoutChildren.forEach(spouse => {
                     html += `
-                                <div class="w-8 h-[2px] bg-slate-400 z-0 shrink-0 relative marriage-line self-center"></div>
+                                <div class="w-8 h-[2px] bg-[var(--tree-line-color,#94a3b8)] z-0 shrink-0 relative marriage-line self-center"></div>
                                 ${generateCardHTML(spouse, true)}`;
                 });
             }
@@ -469,11 +490,11 @@
                     <div class="flex flex-col items-center relative z-10">
                         <div class="relative w-full flex justify-center items-center">
                             <!-- Connect to previous column -->
-                            <div class="absolute top-1/2 left-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>
+                            <div class="absolute top-1/2 left-0 w-1/2 h-[2px] bg-[var(--tree-line-color,#94a3b8)] -translate-y-1/2 z-0 marriage-line"></div>
                             <!-- Connect to next column -->
-                            ${isNotLast ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-slate-400 -translate-y-1/2 z-0 marriage-line"></div>` : ''}
+                            ${isNotLast ? `<div class="absolute top-1/2 right-0 w-1/2 h-[2px] bg-[var(--tree-line-color,#94a3b8)] -translate-y-1/2 z-0 marriage-line"></div>` : ''}
                             
-                            ${(spouse.children && Array.isArray(spouse.children) && spouse.children.length > 0) ? `<div class="absolute top-1/2 bottom-0 left-[calc(50%-1px)] border-l-2 border-slate-400 z-0"></div>` : ''}
+                            ${(spouse.children && Array.isArray(spouse.children) && spouse.children.length > 0) ? `<div class="absolute top-1/2 bottom-0 left-[calc(50%-1px)] border-l-2 border-[var(--tree-line-color,#94a3b8)] z-0 vertical-tree-line"></div>` : ''}
                             ${generateCardHTML(spouse, true)}
                         </div>`; // Close Spouse Card wrapper
                         
@@ -671,7 +692,7 @@
         }
 
         // --- Cross Tree Linking Logic ---
-        function drawCrossLink(svg, x1, y1, x2, y2, type, color = '#94a3b8', sharedMidY = null) {
+        function drawCrossLink(svg, x1, y1, x2, y2, type, color = '#94a3b8', sharedMidY = null, isGlowing = false) {
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             
             let d = '';
@@ -688,6 +709,10 @@
             path.setAttribute('stroke', color);
             path.setAttribute('stroke-width', '2');
             path.setAttribute('fill', 'none');
+            
+            if (isGlowing) {
+                path.classList.add('svg-glow-line');
+            }
             
             svg.appendChild(path);
         }
@@ -749,7 +774,10 @@
                                     const val = rootEl.style.getPropertyValue('--tree-line-color');
                                     if (val) lineColor = val.trim();
                                 }
-                                drawCrossLink(svg, center.x, center.y, sCenter.x, sCenter.y, 'spouse', lineColor);
+                                
+                                const isChildlessGlowing = (card.classList.contains('highlighted') || card.classList.contains('highlighted-gen') || card.classList.contains('highlighted-spouse')) && 
+                                                           (spouseCard.classList.contains('highlighted') || spouseCard.classList.contains('highlighted-gen') || spouseCard.classList.contains('highlighted-spouse'));
+                                drawCrossLink(svg, center.x, center.y, sCenter.x, sCenter.y, 'spouse', lineColor, null, isChildlessGlowing);
                             }
                         }
                     });
@@ -776,6 +804,7 @@
                     if (crossParents.length > 0) {
                         let maxBottomY = 0;
                         let parentLineColor = '#94a3b8';
+                        let anyParentGlowing = false;
                         
                         // İlk döngü: Ortak yüksekliği (midY) ve soy rengini belirle
                         crossParents.forEach(pId => {
@@ -790,18 +819,27 @@
                                     const val = pRoot.style.getPropertyValue('--tree-line-color');
                                     if (val) parentLineColor = val.trim();
                                 }
+                                
+                                if (pCard.classList.contains('highlighted') || pCard.classList.contains('highlighted-gen') || pCard.classList.contains('highlighted-spouse')) {
+                                    anyParentGlowing = true;
+                                }
                             }
                         });
                         
                         const myTopY = (cardRect.top - treeRect.top) / currentZoom;
                         const sharedMidY = (maxBottomY + myTopY) / 2;
                         
+                        const childIsGlowing = card.classList.contains('highlighted') || card.classList.contains('highlighted-gen');
+                        const isGlowingPath = anyParentGlowing && childIsGlowing;
+                        
                         // İkinci döngü: Her bir ebeveynden başlayıp, kusursuz ortak yatay eksende çocuğu bağla
                         crossParents.forEach(pId => {
                             const pRect = nodeRects[pId];
                             const pCenter = getCenter(pRect);
                             const bottomY = (pRect.bottom - treeRect.top) / currentZoom;
-                            drawCrossLink(svg, pCenter.x, bottomY, center.x, myTopY, 'parent-child', parentLineColor, sharedMidY);
+                            const pCard = nodeElements[pId];
+                            const isThisParentGlowing = pCard && (pCard.classList.contains('highlighted') || pCard.classList.contains('highlighted-gen') || pCard.classList.contains('highlighted-spouse'));
+                            drawCrossLink(svg, pCenter.x, bottomY, center.x, myTopY, 'parent-child', parentLineColor, sharedMidY, isGlowingPath && isThisParentGlowing);
                         });
                     }
                 }
@@ -1407,6 +1445,10 @@
                 el.style.removeProperty('--highlight-shadow');
             });
             
+            document.querySelectorAll('.glow-line, .glow-up, .glow-down, .glow-horizontal, .glow-horizontal-left, .glow-horizontal-right').forEach(el => {
+                el.classList.remove('glow-line', 'glow-up', 'glow-down', 'glow-horizontal', 'glow-horizontal-left', 'glow-horizontal-right');
+            });
+            
             // Menüdeki (legend) aktif seçimi de temizle
             document.querySelectorAll('.legend-item').forEach(el => {
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
@@ -1531,9 +1573,114 @@
                 highlightAncestors(card);
                 highlightDescendants(card);
                 highlightSpouses(card);
+                
+                // Sadece aktif yolu ve kan bağını neon yeşil ile aydınlatır (HTML Tree çizgilerini)
+                document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(hCard => {
+                    const myUl = hCard.closest('ul');
+                    if (myUl) {
+                        const parentWrapper = myUl.previousElementSibling;
+                        if (parentWrapper) {
+                            const hasHighlightedParent = Array.from(parentWrapper.querySelectorAll('.tree-node-card')).some(c => 
+                                c.classList.contains('highlighted') || c.classList.contains('highlighted-gen') || c.classList.contains('highlighted-spouse')
+                            );
+                            
+                            if (hasHighlightedParent) {
+                                const genWrapper = hCard.closest('.generation-wrapper');
+                                if (genWrapper) genWrapper.classList.add('glow-up');
+                                myUl.classList.add('glow-down');
+                                
+                                parentWrapper.querySelectorAll('.vertical-tree-line').forEach(line => line.classList.add('glow-line'));
+                                
+                                const childLi = hCard.closest('li');
+                                const lis = Array.from(myUl.children).filter(el => el.tagName === 'LI');
+                                const childIndex = lis.indexOf(childLi);
+                                const centerIndex = (lis.length - 1) / 2;
+                                
+                                if (childIndex < centerIndex) {
+                                    childLi.classList.add('glow-horizontal-right');
+                                    for (let i = childIndex + 1; i <= Math.floor(centerIndex); i++) {
+                                        if (i === centerIndex) lis[i].classList.add('glow-horizontal-left');
+                                        else lis[i].classList.add('glow-horizontal');
+                                    }
+                                } else if (childIndex > centerIndex) {
+                                    childLi.classList.add('glow-horizontal-left');
+                                    for (let i = childIndex - 1; i >= Math.ceil(centerIndex); i--) {
+                                        if (i === centerIndex) lis[i].classList.add('glow-horizontal-right');
+                                        else lis[i].classList.add('glow-horizontal');
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Process marriage line glows globally across the columns
+                document.querySelectorAll('.generation-wrapper').forEach(wrapper => {
+                    const cols = Array.from(wrapper.children).filter(child => child.classList.contains('flex-col'));
+                    
+                    let minHighlightedIndex = -1;
+                    let maxHighlightedIndex = -1;
+
+                    // First, determine which columns contain highlighted cards
+                    cols.forEach((col, index) => {
+                        const hasHighlight = Array.from(col.querySelectorAll('.tree-node-card')).some(c => 
+                            c.classList.contains('highlighted') || c.classList.contains('highlighted-gen') || c.classList.contains('highlighted-spouse')
+                        );
+                        if (hasHighlight) {
+                            if (minHighlightedIndex === -1) minHighlightedIndex = index;
+                            maxHighlightedIndex = index;
+                        }
+                    });
+
+                    if (minHighlightedIndex !== -1) {
+                        // 1. Process inline childless spouse lines for EACH column
+                        cols.forEach(col => {
+                            const cards = Array.from(col.querySelectorAll('.tree-node-card'));
+                            let firstCardIdx = -1;
+                            let lastCardIdx = -1;
+                            
+                            cards.forEach((c, idx) => {
+                                if (c.classList.contains('highlighted') || c.classList.contains('highlighted-gen') || c.classList.contains('highlighted-spouse')) {
+                                    if (firstCardIdx === -1) firstCardIdx = idx;
+                                    lastCardIdx = idx;
+                                }
+                            });
+                            
+                            // If we have highlighted cards spanning across inline childless spouses
+                            if (firstCardIdx !== -1 && lastCardIdx !== -1 && firstCardIdx !== lastCardIdx) {
+                                for (let c = firstCardIdx + 1; c <= lastCardIdx; c++) {
+                                    const card = cards[c];
+                                    if (card.classList.contains('spouse-card')) {
+                                        const prev = card.previousElementSibling;
+                                        if (prev && prev.classList.contains('marriage-line') && !prev.classList.contains('absolute')) {
+                                            prev.classList.add('glow-line');
+                                        }
+                                    }
+                                }
+                            }
+                        });
+
+                        // 2. Process cross-column absolute marriage lines
+                        if (maxHighlightedIndex > minHighlightedIndex) {
+                            for (let i = minHighlightedIndex; i <= maxHighlightedIndex; i++) {
+                                const col = cols[i];
+                                
+                                if (i > minHighlightedIndex) {
+                                    const leftLine = col.querySelector('.marriage-line.left-0');
+                                    if (leftLine) leftLine.classList.add('glow-line');
+                                }
+                                if (i < maxHighlightedIndex) {
+                                    const rightLine = col.querySelector('.marriage-line.right-0');
+                                    if (rightLine) rightLine.classList.add('glow-line');
+                                }
+                            }
+                        }
+                    }
+                });
             }
             
             drawMinimap();
+            if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         });
 
         // Close Person Details Panel
@@ -1546,6 +1693,10 @@
                 el.style.removeProperty('--highlight-shadow');
             });
             
+            document.querySelectorAll('.glow-line, .glow-up, .glow-down, .glow-horizontal, .glow-horizontal-left, .glow-horizontal-right').forEach(el => {
+                el.classList.remove('glow-line', 'glow-up', 'glow-down', 'glow-horizontal', 'glow-horizontal-left', 'glow-horizontal-right');
+            });
+            
             document.querySelectorAll('.legend-item').forEach(el => {
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
@@ -1554,6 +1705,7 @@
             personDetailsPanel.classList.remove('flex');
             
             drawMinimap();
+            if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         });
 
         // Renk (Legend) listesinden jenerasyon seçilince tüm grubu vurgulama
@@ -1572,6 +1724,10 @@
                 el.style.removeProperty('--highlight-color');
                 el.style.removeProperty('--highlight-shadow');
             });
+            document.querySelectorAll('.glow-line, .glow-up, .glow-down, .glow-horizontal, .glow-horizontal-left, .glow-horizontal-right').forEach(el => {
+                el.classList.remove('glow-line', 'glow-up', 'glow-down', 'glow-horizontal', 'glow-horizontal-left', 'glow-horizontal-right');
+            });
+            
             document.querySelectorAll('.legend-item').forEach(el => {
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
@@ -1592,6 +1748,7 @@
             }
             
             drawMinimap();
+            if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         });
 
         // Drag logic for Minimap
