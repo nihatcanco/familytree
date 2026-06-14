@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Tree</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/elkjs@0.8.2/lib/elk.bundled.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            --accent-color: #38bdf8;
+            --female-accent: #f472b6;
+            --male-accent: #60a5fa;
+            --unknown-accent: #a78bfa;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+        }
+
+        /* Dynamic Animated Background */
+        .background-blobs {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            overflow: hidden;
+            background: linear-gradient(to bottom right, #0f172a, #1e1b4b);
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.5;
+            animation: float 20s infinite alternate ease-in-out;
+        }
+
+        .blob-1 {
+            width: 600px;
+            height: 600px;
+            background: rgba(56, 189, 248, 0.2);
+            top: -100px;
+            left: -100px;
+        }
+
+        .blob-2 {
+            width: 500px;
+            height: 500px;
+            background: rgba(244, 114, 182, 0.15);
+            bottom: -100px;
+            right: -100px;
+            animation-delay: -5s;
+        }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(100px, 50px) scale(1.1); }
+        }
+
+        #tree-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: 0 0;
+            cursor: grab;
+        }
+
+        #canvas:active {
+            cursor: grabbing;
+        }
+
+        /* SVG layer for lines */
+        #svg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+            pointer-events: none;
+        }
+
+        .edge-path {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.15);
+            stroke-width: 1px;
+            stroke-linecap: round;
+        }
+
+        /* HTML Nodes */
+        #nodes-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .node {
+            position: absolute;
+            pointer-events: auto;
+            transform: translate(-50%, -50%);
+            transition: box-shadow 0.3s ease, transform 0.3s ease;
+        }
+
+        /* Glassmorphism Card */
+        .person-card {
+            width: 220px;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            box-shadow: var(--card-shadow);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        .person-card:hover {
+            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+            transform: translate(-50%, calc(-50% - 2px));
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .search-match {
+            box-shadow: 0 0 0 4px #f59e0b, 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+            border-color: #f59e0b !important;
+        }
+
+        .selected-node {
+            box-shadow: 0 0 0 4px #38bdf8, 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+            border-color: #38bdf8 !important;
+            transform: translate(-50%, calc(-50% - 2px));
+        }
+
+        .glass-panel {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            box-shadow: var(--card-shadow);
+            border-radius: 12px;
+        }
+
+        .avatar {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            border: 2px solid transparent;
+        }
+
+        .gender-1 .avatar { border-color: var(--male-accent); color: var(--male-accent); }
+        .gender-2 .avatar { border-color: var(--female-accent); color: var(--female-accent); }
+        .gender-0 .avatar { border-color: var(--unknown-accent); color: var(--unknown-accent); }
+
+        .name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 0 0 4px 0;
+            letter-spacing: 0.5px;
+        }
+
+        .details {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin: 0;
+            line-height: 1.4;
+        }
+
+        .union-node {
+            width: 6px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+        }
+
+        /* Loading Screen */
+        #loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent-color);
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Controls */
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .control-btn {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--card-border);
+            color: white;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 20px;
+            box-shadow: var(--card-shadow);
+            transition: background 0.2s, transform 0.2s;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: scale(1.05);
+        }
+
+        .top-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 20px;
+            background: linear-gradient(to bottom, rgba(15, 23, 42, 0.8), transparent);
+            z-index: 100;
+            pointer-events: none;
+        }
+        .top-bar h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 500;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div id="loader-text">Loading Family Tree...</div>
+    </div>
+
+    <div class="top-bar">
+        <h1>Family Tree</h1>
+    </div>
+
+    <div id="tree-container">
+        <div id="canvas">
+            <!-- SVG for drawing relationship lines -->
+            <svg id="svg-layer"></svg>
+            <!-- HTML div for drawing person cards (Glassmorphism) -->
+            <div id="nodes-layer"></div>
+        </div>
+    </div>
+
+    <!-- Search Bar -->
+    <div id="search-bar" class="glass-panel" style="position: fixed; top: 20px; right: 20px; display: flex; align-items: center; padding: 5px 10px; z-index: 100; gap: 8px;">
+        <i data-lucide="search" style="width: 18px; height: 18px; color: var(--text-secondary);"></i>
+        <input type="text" id="search-input" placeholder="Ara..." style="background: transparent; border: none; outline: none; color: white; padding: 8px; width: 200px; font-family: inherit;">
+        <button id="btn-search-clear" style="background: transparent; border: none; color: var(--text-secondary); cursor: pointer; display: none; align-items: center;"><i data-lucide="x" style="width: 16px;"></i></button>
+        <div style="width: 1px; height: 20px; background: var(--card-border); margin: 0 4px;"></div>
+        <button id="btn-search-prev" style="background: transparent; border: none; color: white; cursor: pointer; display: flex; align-items: center;"><i data-lucide="chevron-up" style="width: 20px;"></i></button>
+        <button id="btn-search-next" style="background: transparent; border: none; color: white; cursor: pointer; display: flex; align-items: center;"><i data-lucide="chevron-down" style="width: 20px;"></i></button>
+    </div>
+
+    <!-- Person Details Panel -->
+    <div id="details-panel" class="glass-panel" style="position: fixed; top: 80px; right: 20px; width: 300px; padding: 20px; z-index: 100; display: none; flex-direction: column; gap: 15px; max-height: calc(100vh - 120px); overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
+            <h3 style="margin: 0; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-secondary);">Kişi Detayları</h3>
+            <button id="btn-close-details" style="background: transparent; border: none; color: white; cursor: pointer; display: flex; align-items: center;"><i data-lucide="x" style="width: 18px;"></i></button>
+        </div>
+        <div id="details-content" style="display: flex; flex-direction: column; gap: 10px; font-size: 14px;">
+            <!-- Content injected by JS -->
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="control-btn" id="btn-zoom-in" title="Zoom In">+</button>
+        <button class="control-btn" id="btn-zoom-out" title="Zoom Out">−</button>
+        <button class="control-btn" id="btn-fit" title="Fit to Screen">⛶</button>
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
+    <script src="tree.js"></script>
+</body>
+</html>
