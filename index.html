@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SQLite Family Tree Viewer</title>
+    <title>SQLite Family Tree Viewer (V2)</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons via reliable CDN -->
@@ -126,8 +126,8 @@
             box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
         }
         .tree-node-card.highlighted {
-            border-color: #3b82f6; /* Tailwind blue-500 */
-            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+            border-color: var(--highlight-color, #3b82f6);
+            box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(59, 130, 246, 0.3));
         }
         .tree-node-card.highlighted-gen {
             border-color: var(--highlight-color);
@@ -153,15 +153,16 @@
 
         /* Search Matches */
         .tree-node-card.search-match {
-            outline: 3px solid #f59e0b;
-            outline-offset: 2px;
+            outline: 4px solid var(--search-color, #f59e0b);
+            outline-offset: 3px;
+            box-shadow: 0 0 15px var(--search-color, rgba(245, 158, 11, 0.5));
         }
 
         /* Glowing lines for highlighted tree paths */
         .glow-line {
-            background-color: #22c55e !important;
-            border-color: #22c55e !important;
-            box-shadow: 0 0 6px 1px rgba(34, 197, 94, 0.6) !important;
+            background-color: #1e293b !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 0 4px 1px rgba(30, 41, 59, 0.4) !important;
             z-index: 0 !important;
         }
         ul.glow-down::before,
@@ -170,13 +171,13 @@
         li.glow-horizontal::after, 
         li.glow-horizontal-left::before, 
         li.glow-horizontal-right::after {
-            border-color: #22c55e !important;
-            filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.8)) !important;
+            border-color: #1e293b !important;
+            filter: drop-shadow(0 0 3px rgba(30, 41, 59, 0.4)) !important;
             z-index: 0 !important;
         }
         .svg-glow-line {
-            stroke: #22c55e !important;
-            filter: drop-shadow(0 0 4px #22c55e);
+            stroke: #1e293b !important;
+            filter: drop-shadow(0 0 3px rgba(30, 41, 59, 0.4));
         }
         
         /* Connection Line Colors */
@@ -189,8 +190,8 @@
         
         /* Highlighted Spouse Styling */
         .tree-node-card.highlighted-spouse {
-            border-color: #94a3b8;
-            box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.3);
+            border-color: var(--highlight-color, #94a3b8);
+            box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(148, 163, 184, 0.3));
         }
     </style>
 </head>
@@ -1494,6 +1495,13 @@
             if (!isAlreadyHighlighted) {
                 card.classList.add('highlighted');
                 
+                const gen = parseInt(card.getAttribute('data-generation')) || 1;
+                const len = generationColors.length;
+                const colorIndex = ((gen - 1) % len + len) % len; // Safe modulo for negative numbers
+                const colorObj = generationColors[colorIndex];
+                card.style.setProperty('--highlight-color', colorObj.hex);
+                card.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
+                
                 const detailsStr = card.getAttribute('data-details');
                 if (detailsStr) {
                     try {
@@ -1554,7 +1562,9 @@
 
                 function applyHighlightGen(element) {
                     const gen = parseInt(element.getAttribute('data-generation')) || 1;
-                    const colorObj = generationColors[(gen - 1) % generationColors.length];
+                    const len = generationColors.length;
+                    const colorIndex = ((gen - 1) % len + len) % len;
+                    const colorObj = generationColors[colorIndex];
                     
                     element.classList.add('highlighted-gen');
                     element.style.setProperty('--highlight-color', colorObj.hex);
@@ -1596,6 +1606,13 @@
                             document.querySelectorAll(`.tree-node-card[data-id="${sid}"]`).forEach(spouseCard => {
                                 if (!spouseCard.classList.contains('highlighted-gen') && !spouseCard.classList.contains('highlighted') && !spouseCard.classList.contains('highlighted-spouse')) {
                                     spouseCard.classList.add('highlighted-spouse');
+                                    
+                                    const gen = parseInt(spouseCard.getAttribute('data-generation')) || 1;
+                                    const len = generationColors.length;
+                                    const colorIndex = ((gen - 1) % len + len) % len;
+                                    const colorObj = generationColors[colorIndex];
+                                    spouseCard.style.setProperty('--highlight-color', colorObj.hex);
+                                    spouseCard.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
                                 }
                             });
                         });
@@ -1605,7 +1622,11 @@
                 applyHighlightGen(card);
                 highlightAncestors(card);
                 highlightDescendants(card);
-                highlightSpouses(card);
+                
+                // Highlight spouses for the clicked card AND all its highlighted ancestors/descendants
+                document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen').forEach(hCard => {
+                    highlightSpouses(hCard);
+                });
                 
                 // Sadece aktif yolu ve kan bağını neon yeşil ile aydınlatır (HTML Tree çizgilerini)
                 document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(hCard => {
@@ -1785,7 +1806,10 @@
                 item.classList.add('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
                 
                 document.querySelectorAll(`.tree-node-card[data-generation="${targetGen}"]`).forEach(card => {
-                    const colorObj = generationColors[(parseInt(targetGen) - 1) % generationColors.length];
+                    const targetGenInt = parseInt(targetGen) || 1;
+                    const len = generationColors.length;
+                    const colorIndex = ((targetGenInt - 1) % len + len) % len;
+                    const colorObj = generationColors[colorIndex];
                     card.classList.add('highlighted-gen');
                     card.style.setProperty('--highlight-color', colorObj.hex);
                     card.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
@@ -1851,7 +1875,10 @@
                 btnSearchClear.classList.remove('flex');
             }
 
-            document.querySelectorAll('.search-match').forEach(el => el.classList.remove('search-match'));
+            document.querySelectorAll('.search-match').forEach(el => {
+                el.classList.remove('search-match');
+                el.style.removeProperty('--search-color');
+            });
             searchResults = [];
             currentSearchIndex = -1;
 
@@ -1876,6 +1903,12 @@
                         if (text.includes(query)) {
                             searchResults.push(card);
                             card.classList.add('search-match');
+                            
+                            const gen = parseInt(card.getAttribute('data-generation')) || 1;
+                            const len = generationColors.length;
+                            const colorIndex = ((gen - 1) % len + len) % len;
+                            const colorObj = generationColors[colorIndex];
+                            card.style.setProperty('--search-color', colorObj.hex);
                         }
                     } catch (e) {}
                 }
