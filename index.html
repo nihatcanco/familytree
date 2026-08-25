@@ -432,7 +432,8 @@
             if (surname) {
                 html += `<div class="font-semibold text-slate-700 text-base -mt-1 mb-1">${escapeHTML(surname)}</div>`;
             }
-            
+            html += `<div class="text-[10px] text-slate-400 font-mono mb-1">ID: ${escapeHTML(person.id)}</div>`;
+
             const displayAttributes = Object.keys(person.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
             if (displayAttributes.length > 0) {
                 html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
@@ -1445,38 +1446,45 @@
             btnFocus.addEventListener('click', () => toggleFocusMode());
         }
 
-        // Zoom on mouse scroll wheel
-        scrollContainer.addEventListener('wheel', (e) => {
-            // Prevent default vertical/horizontal scrolling behavior
-            e.preventDefault();
-
-            // deltaY < 0 means scrolling up (zoom in)
-            const isZoomingIn = e.deltaY < 0;
-            
-            // Default step for standard mouse wheel zooming
-            let zoomDelta = 0.1;
-
-            // Smooth pinch-to-zoom on trackpads triggers the wheel event with ctrlKey
-            if (e.ctrlKey) {
-                zoomDelta = Math.abs(e.deltaY) * 0.01;
-            }
-
+        // Zoom the tree around the cursor, keeping whatever's under the pointer stationary.
+        function applyWheelZoom(e, isZoomingIn, zoomDelta) {
             const oldZoom = currentZoom;
             currentZoom = isZoomingIn ? Math.min(currentZoom + zoomDelta, 2) : Math.max(currentZoom - zoomDelta, 0.05);
-            
+
             if (currentZoom !== oldZoom) {
-                // Get mouse coordinates relative to the scroll container
                 const rect = scrollContainer.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
-                
-                // Calculate new scroll position to keep the content under the mouse stationary
+
                 const zoomRatio = currentZoom / oldZoom;
                 const newScrollLeft = (scrollContainer.scrollLeft + mouseX) * zoomRatio - mouseX;
                 const newScrollTop = (scrollContainer.scrollTop + mouseY) * zoomRatio - mouseY;
-                
+
                 updateZoomStyle(newScrollLeft, newScrollTop);
             }
+        }
+
+        scrollContainer.addEventListener('wheel', (e) => {
+            // Trackpad pinch gesture: browsers report this as a wheel event with
+            // ctrlKey set to true, with small/fractional deltaY as the fingers move.
+            // Someone actually holding Ctrl while turning a physical mouse wheel gets
+            // the same ctrlKey flag, but with large "steppy" integer deltas — treat
+            // only the former as zoom, and let the latter just scroll like normal.
+            if (e.ctrlKey && (!Number.isInteger(e.deltaY) || Math.abs(e.deltaY) < 50)) {
+                e.preventDefault();
+                applyWheelZoom(e, e.deltaY < 0, Math.abs(e.deltaY) * 0.01);
+                return;
+            }
+
+            // Shift+scroll (mouse wheel or trackpad): an explicit request to zoom.
+            if (e.shiftKey) {
+                e.preventDefault();
+                applyWheelZoom(e, e.deltaY < 0, 0.1);
+                return;
+            }
+
+            // No modifier: let the browser scroll/pan natively — both a trackpad's
+            // two-finger scroll and a plain mouse wheel behave the same way here.
         }, { passive: false }); // Passive must be false to allow preventDefault()
 
         // Drag to scroll functionality
