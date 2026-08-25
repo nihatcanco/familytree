@@ -105,8 +105,11 @@
         .tree-container ul ul li > .generation-wrapper::before {
             content: '';
             position: absolute;
-            top: -20px; /* Go up into the li's padding-top */
-            height: var(--line-height, 60px); /* Dynamically set via JS to perfectly touch marriage lines */
+            /* --extra-gap: set by alignGenerationRows() when this row was pushed down
+               to skip one or more missing generations, so the line stretches across
+               that gap instead of stopping short and leaving a visible break. */
+            top: calc(-20px - var(--extra-gap, 0px)); /* Go up into the li's padding-top */
+            height: calc(var(--line-height, 60px) + var(--extra-gap, 0px)); /* Dynamically set via JS to perfectly touch marriage lines */
             left: calc(50% - 1px);
             border-left: 2px solid var(--tree-line-color, #94a3b8);
             z-index: 0;
@@ -464,8 +467,8 @@
             const hasDirectChildren = node.children && Array.isArray(node.children) && node.children.length > 0;
 
             let html = `<li class="relative">
-                <div class="generation-wrapper flex items-start justify-center relative">
-                    
+                <div class="generation-wrapper flex items-start justify-center relative" data-generation="${node._generation}">
+
                     <!-- Main Node Column -->
                     <div class="flex flex-col items-center relative z-10">
                         <div class="relative w-full flex justify-center items-center">
@@ -616,6 +619,32 @@
                 componentNodes.forEach(n => n._generation += offset);
             });
 
+            // Jenerasyon Tutarlılık Düzeltmesi (Relaxation Pass)
+            // BFS, eşler arası jenerasyon farkı olan (örn. akraba evliliği/yaş farkı büyük evlilikler)
+            // durumlarda gezinme sırasına bağlı olarak kardeşlere farklı jenerasyon numaraları
+            // atayabiliyordu (aynı ebeveynlerin çocukları farklı jenerasyonlarda görünüyordu).
+            // Bu döngü, her çocuğun jenerasyonunun ebeveynlerinden en az 1 fazla olmasını garanti
+            // ederek Focus modundaki dikey hizalama bozukluklarını giderir.
+            let genChanged = true;
+            let genIterations = 0;
+            const maxGenIterations = nodeMap.size + 5;
+            while (genChanged && genIterations < maxGenIterations) {
+                genChanged = false;
+                genIterations++;
+                nodeMap.forEach(node => {
+                    node._parentIds.forEach(pid => {
+                        const parent = nodeMap.get(Number(pid));
+                        if (parent) {
+                            const desired = parent._generation + 1;
+                            if (node._generation < desired) {
+                                node._generation = desired;
+                                genChanged = true;
+                            }
+                        }
+                    });
+                });
+            }
+
             const roots = [];
             nodeMap.forEach(node => {
                 // Nodes with no parents, or whose parents don't exist in the dataset, are roots
@@ -700,7 +729,107 @@
                     // Dynamically set the upward line height so it connects exactly to the marriage line center
                     wrapper.style.setProperty('--line-height', (20 + (maxHeight / 2)) + 'px');
             });
-            
+
+            if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
+        }
+
+        // Align every row by its real generation number, not just by how many DOM
+        // levels it happens to be nested under.
+        //
+        // Two things can make a row's DOM depth disagree with its data-generation:
+        //   1. A person with no recorded parents starts their own top-level
+        //      ".family-root" tree. If that tree is only linked to another one via a
+        //      marriage further down (a cross-tree line, not a shared DOM ancestor),
+        //      the two trees are still just flex siblings top-aligned by
+        //      ".roots-container", regardless of which absolute generation each
+        //      root actually belongs to.
+        //   2. A couple can legitimately sit at different generations (e.g. a
+        //      cross-generation marriage). Their shared children are rendered as
+        //      DOM descendants of whichever parent's card claims them, one level
+        //      below that ONE parent — even though the child's true generation is
+        //      one more than the OLDER (higher-generation) parent, which can be a
+        //      generation further down than the rendering parent alone implies.
+        //
+        // Both cases show up the same way: a row's data-generation is higher than
+        // (nearest ancestor row's generation + 1). This walks every row, compares
+        // it to its nearest rendered ancestor row (or the tree-wide minimum
+        // generation, for top-level roots), and pushes it down by the measured
+        // height of however many generations it's missing.
+        function alignGenerationRows() {
+            const wrappers = Array.from(document.querySelectorAll('.generation-wrapper[data-generation]'));
+            if (wrappers.length === 0) return;
+
+            wrappers.forEach(w => { w.style.marginTop = ''; w.style.removeProperty('--extra-gap'); });
+
+            // For every row, measure its columns' natural content height (the card
+            // row itself — the "innerContent" that syncRowHeights above also reads —
+            // not the container whose height gets overwritten below, so repeated
+            // calls stay idempotent instead of compounding). Track the tallest
+            // occurrence of each generation anywhere in the tree: different branches
+            // often have different content (notes, extra attributes) at the same
+            // generation, and without forcing them to the same height, branches with
+            // shorter cards visually drift upward relative to branches with taller
+            // ones the further down the tree you go.
+            const wrapperInfo = [];
+            const genRowHeight = {};
+            let baseGen = Infinity;
+
+            wrappers.forEach(wrapper => {
+                const gen = parseInt(wrapper.getAttribute('data-generation'));
+                if (gen < baseGen) baseGen = gen;
+
+                const cardWrappers = Array.from(wrapper.children)
+                    .map(col => col.querySelector(':scope > .relative.w-full.flex'))
+                    .filter(Boolean);
+
+                let ownHeight = 0;
+                cardWrappers.forEach(cw => {
+                    const innerContent = Array.from(cw.children).find(child => !child.classList.contains('absolute'));
+                    if (innerContent && innerContent.offsetHeight > ownHeight) ownHeight = innerContent.offsetHeight;
+                });
+
+                if (ownHeight > 0 && (!genRowHeight[gen] || ownHeight > genRowHeight[gen])) {
+                    genRowHeight[gen] = ownHeight;
+                }
+                wrapperInfo.push({ wrapper, gen, cardWrappers, ownHeight });
+            });
+
+            const knownHeights = Object.values(genRowHeight);
+            const fallbackHeight = knownHeights.length
+                ? knownHeights.reduce((a, b) => a + b, 0) / knownHeights.length
+                : 160;
+            const rowGap = 40; // downward connector (20px) + next row's own margin-top (20px)
+
+            // Pad every row up to the tallest occurrence of its generation, so equal
+            // generations always consume equal vertical space everywhere.
+            wrapperInfo.forEach(({ wrapper, gen, cardWrappers, ownHeight }) => {
+                const targetHeight = genRowHeight[gen] || ownHeight || fallbackHeight;
+                cardWrappers.forEach(cw => { cw.style.height = targetHeight + 'px'; });
+                wrapper.style.setProperty('--line-height', (20 + (targetHeight / 2)) + 'px');
+            });
+
+            // Push down any row whose generation is more than one past its nearest
+            // rendered ancestor row (or, for top-level roots, past the tree-wide
+            // minimum generation) — see the two causes described above.
+            wrapperInfo.forEach(({ wrapper, gen }) => {
+                const ancestorWrapper = wrapper.parentElement ? wrapper.parentElement.closest('.generation-wrapper') : null;
+                const expectedGen = ancestorWrapper
+                    ? parseInt(ancestorWrapper.getAttribute('data-generation')) + 1
+                    : baseGen;
+
+                let extra = 0;
+                for (let g = expectedGen; g < gen; g++) {
+                    extra += (genRowHeight[g] || fallbackHeight) + rowGap;
+                }
+                if (extra > 0) {
+                    wrapper.style.marginTop = (20 + extra) + 'px';
+                    // Stretch the upward connector line across the same gap so it
+                    // reads as one continuous line instead of breaking where the
+                    // skipped generations were inserted.
+                    wrapper.style.setProperty('--extra-gap', extra + 'px');
+                }
+            });
+
             if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         }
 
@@ -1027,13 +1156,15 @@
                 }
                 
                 syncRowHeights();
-                
+                alignGenerationRows();
+
                 // Ensure heights stay perfectly synced when text wraps, window resizes, or fonts load
                 let resizeTimeout = null;
                 const resizeObserver = new ResizeObserver(() => {
                     if (resizeTimeout) clearTimeout(resizeTimeout);
                     resizeTimeout = setTimeout(() => {
                         syncRowHeights();
+                        alignGenerationRows();
                         drawMinimap();
                     }, 50);
                 });
@@ -1284,6 +1415,7 @@
 
             // Recalculate physical dimensions and heights
             syncRowHeights();
+            alignGenerationRows();
             setTimeout(() => {
                 if (isFocusMode) {
                     updateZoomStyle(); // re-eval physical dimensions for the wrapper
