@@ -6,7 +6,7 @@ npx http-server
 
 * **If you have Python installed:**
 ```bash
-python -m http.server 8000
+python3 -m http.server 8000
 ```
 
 * **If you have PHP installed:**

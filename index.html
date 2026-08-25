@@ -131,7 +131,6 @@
         }
         .tree-node-card.highlighted-gen {
             border-color: var(--highlight-color);
-            box-shadow: var(--highlight-shadow);
         }
 
         /* Hide Scrollbars */
@@ -191,7 +190,6 @@
         /* Highlighted Spouse Styling */
         .tree-node-card.highlighted-spouse {
             border-color: var(--highlight-color, #94a3b8);
-            box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(148, 163, 184, 0.3));
         }
     </style>
 </head>
@@ -948,14 +946,14 @@
                 let rootsHTML = '<div class="roots-container">';
                 const treeLineColors = [
                     '#64748b', // 1: Arduvaz (Default)
-                    '#ef4444', // 2: Kırmızı
-                    '#3b82f6', // 3: Mavi
-                    '#10b981', // 4: Zümrüt
-                    '#f59e0b', // 5: Kehribar
-                    '#8b5cf6', // 6: Menekşe
-                    '#06b6d4', // 7: Camgöbeği
-                    '#ec4899', // 8: Pembe
-                    '#84cc16'  // 9: Limon Yeşili
+                    '#78716c', // 2: Taş / Sıcak Gri (Stone 500)
+                    '#0f766e', // 3: Koyu Turkuaz (Teal 700)
+                    '#9f1239', // 4: Koyu Gül / Bordo (Rose 800)
+                    '#4338ca', // 5: Koyu İndigo (Indigo 700)
+                    '#4d7c0f', // 6: Koyu Zeytin Yeşili (Lime 700)
+                    '#a21caf', // 7: Koyu Eflatun (Fuchsia 700)
+                    '#b45309', // 8: Koyu Kehribar / Kahve (Amber 700)
+                    '#334155'  // 9: Koyu Arduvaz (Slate 700)
                 ];
                 
                 roots.forEach((root, index) => {
