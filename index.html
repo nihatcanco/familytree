@@ -447,6 +447,34 @@
                 componentNodes.forEach(n => n._generation += offset);
             });
 
+            // Eş Jenerasyon Sabitleme (Spousal Grounding)
+            // Kayıtlı ebeveyni OLMAYAN bir kişinin jenerasyonu, aslında hiçbir soy
+            // bilgisine dayanmaz — yukarıdaki BFS'in hangi sırayla ilerlediğine
+            // bağlı rastgele bir değerdir (örn. Zeynep'in ID:313 hiç ebeveyni yok,
+            // ama eşi Ayedin Molla'dan farklı bir jenerasyona düşebiliyordu).
+            // Böyle "sabitlenmemiş" biri, kayıtlı ebeveyni OLAN (dolayısıyla
+            // gerçek bir soy derinliğine sahip) eşinin jenerasyonuna çekilir.
+            // Bu, çocukların jenerasyonunu hesaplayan aşağıdaki geçişten ÖNCE
+            // yapılmalı ki çocuklar da doğru (düzeltilmiş) ebeveyn değerini kullansın.
+            let spouseChanged = true;
+            let spouseIterations = 0;
+            const maxSpouseIterations = nodeMap.size + 5;
+            while (spouseChanged && spouseIterations < maxSpouseIterations) {
+                spouseChanged = false;
+                spouseIterations++;
+                nodeMap.forEach(node => {
+                    const hasOwnParents = node._parentIds.some(pid => nodeMap.has(Number(pid)));
+                    if (hasOwnParents) return; // has real recorded ancestry — don't override it
+                    node._spouseIds.forEach(sid => {
+                        const spouse = nodeMap.get(Number(sid));
+                        if (spouse && spouse._generation !== node._generation) {
+                            node._generation = spouse._generation;
+                            spouseChanged = true;
+                        }
+                    });
+                });
+            }
+
             // Jenerasyon Tutarlılık Düzeltmesi (Relaxation Pass)
             // BFS, eşler arası jenerasyon farkı olan (örn. akraba evliliği/yaş farkı büyük evlilikler)
             // durumlarda gezinme sırasına bağlı olarak kardeşlere farklı jenerasyon numaraları
