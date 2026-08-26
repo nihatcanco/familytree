@@ -1597,8 +1597,21 @@
         });
 
         // --- Search Logic ---
+        // Folds Turkish-specific letters to their closest ASCII equivalent so that
+        // typing plain "i"/"s"/"g"/"u"/"o"/"c" also matches "ı"/"ş"/"ğ"/"ü"/"ö"/"ç".
+        function foldTurkish(str) {
+            return str
+                .toLocaleLowerCase('tr-TR')
+                .replace(/ı/g, 'i')
+                .replace(/ş/g, 's')
+                .replace(/ğ/g, 'g')
+                .replace(/ü/g, 'u')
+                .replace(/ö/g, 'o')
+                .replace(/ç/g, 'c');
+        }
+
         function performSearch() {
-            const query = searchInput.value.trim().toLocaleLowerCase('tr-TR');
+            const query = foldTurkish(searchInput.value.trim());
             
             // Temizle butonunu göster/gizle
             if (query.length > 0) {
@@ -1632,7 +1645,7 @@
                             ...(details.attributes ? Object.values(details.attributes) : [])
                         ];
                         
-                        const text = searchableValues.filter(Boolean).join(' ').toLocaleLowerCase('tr-TR');
+                        const text = foldTurkish(searchableValues.filter(Boolean).join(' '));
 
                         if (text.includes(query)) {
                             searchResults.push(card);
