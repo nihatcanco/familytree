@@ -323,7 +323,7 @@
                 portraitHtml = `<div class="w-16 h-16 rounded-full bg-slate-50 mx-auto mb-2 flex items-center justify-center border-2 border-slate-100 shadow-sm shrink-0"><i data-lucide="user" class="w-8 h-8 text-slate-300"></i></div>`;
             }
 
-            let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] min-h-[10em] text-center absolute z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
+            let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[220px] min-h-[10em] text-center absolute z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
                 <div class="card-header">
                 ${portraitHtml}
                 <h3 class="font-bold text-slate-900 text-lg hover:opacity-80 transition-opacity ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</h3>`;
@@ -407,7 +407,7 @@
         // reliably in others (confirmed: Safari needed more than the single rAF
         // this used to wait), so poll actual computed style instead of guessing
         // a fixed frame count — wait until a known utility class's effect
-        // (w-[200px]) is actually visible on a real card, with a generous cap so
+        // (w-[220px]) is actually visible on a real card, with a generous cap so
         // a genuine failure doesn't hang forever.
         function waitForCardStyles() {
             return new Promise(resolve => {

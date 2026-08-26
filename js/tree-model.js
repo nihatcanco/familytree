@@ -3,7 +3,7 @@
 // tree layout. No DOM access anywhere in this file — see the inline script
 // in index.html for rendering/UI concerns.
 
-export const CARD_WIDTH = 200;
+export const CARD_WIDTH = 220;
 const INLINE_SPOUSE_GAP = 40;   // gap between a person and an inline childless spouse
 const COLUMN_GAP = 60;          // gap between a person's column and a spouse-with-children column
 // Deliberately much bigger than COLUMN_GAP: a married couple's columns
