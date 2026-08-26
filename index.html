@@ -310,11 +310,11 @@
             const surname = (person.attributes && person.attributes.surname) ? person.attributes.surname : '';
 
             const gender = (person.attributes && person.attributes.gender) ? person.attributes.gender : '';
-            let genderBar = '';
+            let genderIcon = '';
             if (gender === 'Male') {
-                genderBar = '<div class="absolute top-0 left-0 w-full h-1 bg-sky-400/50"></div>';
+                genderIcon = '<i data-lucide="mars" class="w-3 h-3 text-sky-400 inline-block align-middle mr-1"></i>';
             } else if (gender === 'Female') {
-                genderBar = '<div class="absolute top-0 left-0 w-full h-1 bg-rose-400/50"></div>';
+                genderIcon = '<i data-lucide="venus" class="w-3 h-3 text-rose-400 inline-block align-middle mr-1"></i>';
             }
 
             let portraitHtml = '';
@@ -325,13 +325,12 @@
             }
 
             let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] min-h-[10em] text-center absolute z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
-                ${genderBar}
                 ${portraitHtml}
                 <h3 class="font-bold text-slate-900 text-lg hover:opacity-80 transition-opacity ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</h3>`;
             if (surname) {
                 html += `<div class="font-semibold text-slate-700 text-base -mt-1 mb-1">${escapeHTML(surname)}</div>`;
             }
-            html += `<div class="text-[10px] text-slate-400 font-mono mb-1">ID: ${escapeHTML(person.id)}</div>`;
+            html += `<div class="text-[10px] text-slate-400 font-mono mb-1">${genderIcon}ID: ${escapeHTML(person.id)}</div>`;
 
             const displayAttributes = Object.keys(person.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
             if (displayAttributes.length > 0) {
@@ -1735,7 +1734,14 @@
                         const details = JSON.parse(detailsStr);
                         const name = details.name || "UNKNOWN";
                         const surname = (details.attributes && details.attributes.surname) ? details.attributes.surname : '';
-                        
+                        const gender = (details.attributes && details.attributes.gender) ? details.attributes.gender : '';
+                        let genderIcon = '';
+                        if (gender === 'Male') {
+                            genderIcon = '<i data-lucide="mars" class="w-3 h-3 text-sky-400 inline-block align-middle mr-1"></i>';
+                        } else if (gender === 'Female') {
+                            genderIcon = '<i data-lucide="venus" class="w-3 h-3 text-rose-400 inline-block align-middle mr-1"></i>';
+                        }
+
                         let detailsHTML = '';
                         if (details.photoUrl) {
                             detailsHTML += `<img src="${escapeHTML(details.photoUrl)}" alt="Portrait" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-slate-100 shadow-sm shrink-0">`;
@@ -1747,7 +1753,7 @@
                         if (surname) {
                             detailsHTML += `<div class="font-semibold text-slate-700 text-sm mb-1">${escapeHTML(surname)}</div>`;
                         }
-                        detailsHTML += `<div class="text-[10px] text-slate-400 font-mono mb-2 border-b border-slate-100 pb-2">ID: ${escapeHTML(details.id)}</div>`;
+                        detailsHTML += `<div class="text-[10px] text-slate-400 font-mono mb-2 border-b border-slate-100 pb-2">${genderIcon}ID: ${escapeHTML(details.id)}</div>`;
                         
                         const displayAttributes = Object.keys(details.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
                         if (displayAttributes.length > 0) {
