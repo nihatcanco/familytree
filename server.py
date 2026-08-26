@@ -60,9 +60,69 @@ def fetch_tree():
     return people
 
 
+def _ancestor_ids(conn, person_id, seen=None):
+    """All ids reachable by walking up the Parents chain from person_id."""
+    if seen is None:
+        seen = set()
+    row = conn.execute("SELECT parent1Id, parent2Id FROM Parents WHERE childId = ?", (person_id,)).fetchone()
+    if not row:
+        return seen
+    for pid in (row["parent1Id"], row["parent2Id"]):
+        if pid is not None and pid not in seen:
+            seen.add(pid)
+            _ancestor_ids(conn, pid, seen)
+    return seen
+
+
+def _update_parents(conn, person_id, parent_ids):
+    if not isinstance(parent_ids, list) or len(parent_ids) > 2:
+        raise ValueError("Geçersiz ebeveyn listesi.")
+
+    ids = []
+    for pid in parent_ids:
+        if pid is None:
+            continue
+        try:
+            pid = int(pid)
+        except (TypeError, ValueError):
+            raise ValueError("Geçersiz ebeveyn kimliği.")
+        if pid == person_id:
+            raise ValueError("Bir kişi kendi ebeveyni olamaz.")
+        if pid not in ids:
+            ids.append(pid)
+    if len(ids) > 2:
+        raise ValueError("En fazla 2 ebeveyn seçilebilir.")
+
+    for pid in ids:
+        exists = conn.execute("SELECT id FROM People WHERE id = ?", (pid,)).fetchone()
+        if exists is None:
+            raise ValueError(f"Ebeveyn olarak seçilen kişi ({pid}) bulunamadı.")
+        if person_id in _ancestor_ids(conn, pid):
+            raise ValueError("Bu seçim döngüsel bir soy ilişkisi oluşturur.")
+
+    existing = conn.execute("SELECT id FROM Parents WHERE childId = ?", (person_id,)).fetchone()
+    if not ids:
+        if existing:
+            conn.execute("DELETE FROM Parents WHERE childId = ?", (person_id,))
+        return
+
+    parent1Id, parent2Id = ids[0], (ids[1] if len(ids) > 1 else None)
+    if existing:
+        conn.execute(
+            "UPDATE Parents SET parent1Id = ?, parent2Id = ? WHERE childId = ?",
+            (parent1Id, parent2Id, person_id),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO Parents (childId, parent1Id, parent2Id) VALUES (?, ?, ?)",
+            (person_id, parent1Id, parent2Id),
+        )
+
+
 def update_person(person_id, fields):
+    parent_ids = fields.get("parentIds")
     updates = {k: v for k, v in fields.items() if k in EDITABLE_FIELDS}
-    if not updates:
+    if not updates and parent_ids is None:
         raise ValueError("Düzenlenecek geçerli bir alan gönderilmedi.")
     if "name" in updates and not str(updates["name"] or "").strip():
         raise ValueError("Ad boş olamaz.")
@@ -75,15 +135,22 @@ def update_person(person_id, fields):
         if row is None:
             raise LookupError("Kişi bulunamadı.")
 
-        set_clause = ", ".join(f"{key} = ?" for key in updates)
-        conn.execute(
-            f"UPDATE People SET {set_clause} WHERE id = ?",
-            (*updates.values(), person_id),
-        )
+        if updates:
+            set_clause = ", ".join(f"{key} = ?" for key in updates)
+            conn.execute(
+                f"UPDATE People SET {set_clause} WHERE id = ?",
+                (*updates.values(), person_id),
+            )
+
+        if parent_ids is not None:
+            _update_parents(conn, person_id, parent_ids)
+
         conn.commit()
 
-        updated = conn.execute("SELECT * FROM People WHERE id = ?", (person_id,)).fetchone()
-        return dict(updated)
+        updated = dict(conn.execute("SELECT * FROM People WHERE id = ?", (person_id,)).fetchone())
+        parents_row = conn.execute("SELECT parent1Id, parent2Id FROM Parents WHERE childId = ?", (person_id,)).fetchone()
+        updated["parentIds"] = [pid for pid in (parents_row["parent1Id"], parents_row["parent2Id"]) if pid is not None] if parents_row else []
+        return updated
     finally:
         conn.close()
 

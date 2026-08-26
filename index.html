@@ -1222,10 +1222,39 @@
             return null;
         }
 
+        // Builds <option> HTML for every person except excludeId, sorted by
+        // name/surname, for the parent-picker selects in the edit form.
+        function buildPersonOptions(excludeId, selectedId) {
+            const options = collectAllPersons(originalRoots)
+                .map(({ person }) => person)
+                .filter(p => Number(p.id) !== Number(excludeId));
+
+            const seen = new Set();
+            const unique = options.filter(p => {
+                if (seen.has(Number(p.id))) return false;
+                seen.add(Number(p.id));
+                return true;
+            });
+            unique.sort((a, b) => {
+                const labelA = `${a.name || ''} ${(a.attributes && a.attributes.surname) || ''}`.trim();
+                const labelB = `${b.name || ''} ${(b.attributes && b.attributes.surname) || ''}`.trim();
+                return labelA.localeCompare(labelB, 'tr');
+            });
+
+            let html = `<option value="" ${selectedId == null ? 'selected' : ''}>— Yok —</option>`;
+            unique.forEach(p => {
+                const label = `${p.name || ''} ${(p.attributes && p.attributes.surname) || ''}`.trim() || `#${p.id}`;
+                const isSelected = selectedId != null && Number(selectedId) === Number(p.id);
+                html += `<option value="${p.id}" ${isSelected ? 'selected' : ''}>${escapeHTML(label)} (ID: ${p.id})</option>`;
+            });
+            return html;
+        }
+
         // Swaps the details panel into an editable form for the given person node.
         function showPersonDetailsEdit(node) {
             const attrs = node.attributes || {};
             const genderVal = attrs.gender || '';
+            const parentIds = (node._parentIds || []).map(Number);
 
             personDetailsContent.innerHTML = `
                 <div class="flex flex-col gap-2">
@@ -1256,6 +1285,18 @@
                     <label class="flex flex-col gap-0.5">
                         <span class="text-[10px] font-semibold text-slate-500 uppercase">Not</span>
                         <textarea id="edit-field-note" rows="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white resize-none">${escapeHTML(attrs.note || '')}</textarea>
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 1</span>
+                        <select id="edit-field-parent1" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            ${buildPersonOptions(node.id, parentIds[0])}
+                        </select>
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 2</span>
+                        <select id="edit-field-parent2" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            ${buildPersonOptions(node.id, parentIds[1])}
+                        </select>
                     </label>
                     <div id="edit-form-error" class="text-[11px] text-red-500 hidden"></div>
                     <div class="flex gap-2 mt-1">
@@ -1297,6 +1338,16 @@
             const note = document.getElementById('edit-field-note').value.trim();
             const genderNum = genderStr === 'Male' ? 1 : genderStr === 'Female' ? 2 : 0;
 
+            const parent1Raw = document.getElementById('edit-field-parent1').value;
+            const parent2Raw = document.getElementById('edit-field-parent2').value;
+            const parent1Id = parent1Raw ? Number(parent1Raw) : null;
+            const parent2Id = parent2Raw ? Number(parent2Raw) : null;
+            if (parent1Id !== null && parent2Id !== null && parent1Id === parent2Id) {
+                showFormError('Ebeveyn 1 ve Ebeveyn 2 aynı kişi olamaz.');
+                return;
+            }
+            const parentIds = [parent1Id, parent2Id].filter(id => id !== null);
+
             const saveBtn = document.getElementById('btn-save-details');
             saveBtn.disabled = true;
             saveBtn.textContent = 'Kaydediliyor...';
@@ -1309,15 +1360,15 @@
                     birthdate: birthdate || null,
                     birthplace: birthplace || null,
                     note: note || null,
+                    parentIds,
                 });
 
-                node.name = name;
-                node.attributes = {};
-                if (surname) node.attributes.surname = surname;
-                if (birthplace) node.attributes.birthplace = birthplace;
-                if (birthdate) node.attributes.birthdate = birthdate;
-                if (genderStr) node.attributes.gender = genderStr;
-                if (note) node.attributes.note = note;
+                // Parent changes can move this person to a different branch of
+                // the tree, so rebuild the whole hierarchy from fresh server
+                // data rather than patching the old node in place.
+                const { people } = await getTree();
+                originalRoots = buildHierarchy(people);
+                const updatedNode = findPersonNode(originalRoots, node.id);
 
                 // Re-render, preserving whatever highlight/focus state was active.
                 const highlightState = captureHighlightState();
@@ -1331,7 +1382,9 @@
                 drawCrossTreeLinks();
                 drawMinimap();
 
-                showPersonDetailsView({ name: node.name, id: node.id, photoUrl: node.photoUrl, attributes: node.attributes });
+                if (updatedNode) {
+                    showPersonDetailsView({ name: updatedNode.name, id: updatedNode.id, photoUrl: updatedNode.photoUrl, attributes: updatedNode.attributes });
+                }
             } catch (err) {
                 showFormError('Kaydetme başarısız: ' + err.message);
                 saveBtn.disabled = false;
