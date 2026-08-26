@@ -580,8 +580,14 @@
         const CARD_WIDTH = 200;
         const INLINE_SPOUSE_GAP = 40;   // gap between a person and an inline childless spouse
         const COLUMN_GAP = 60;          // gap between a person's column and a spouse-with-children column
-        const SIBLING_GAP = 60;         // gap between different children (family units) of the same parent
-        const ROOT_GAP = 120;           // gap between independent top-level root trees
+        // Deliberately much bigger than COLUMN_GAP: a married couple's columns
+        // should read as one unit, but different children of the same parent
+        // each head their own branch — often carrying entirely different
+        // in-law surnames a few generations down — and a small gap makes that
+        // split look like incidental whitespace rather than an intentional
+        // "these are separate family lines" boundary.
+        const SIBLING_GAP = 160;        // gap between different children (family units) of the same parent
+        const ROOT_GAP = 240;           // gap between independent top-level root trees
         const ROW_GAP = 70;             // vertical gap between generation rows
 
         // Merge a contour (Map<generation, {min,max}>), shifted by shiftX, into an
@@ -625,13 +631,46 @@
             return { offsets, contour: combined, width };
         }
 
+        // Like packSiblingsContour, but packs each item by its FULL bounding
+        // box (leftmost to rightmost point across every generation it has),
+        // never letting one item's deeper generations slide in next to another
+        // item's shallower ones. packSiblingsContour's interleaving is exactly
+        // right for compaction *within* one family (e.g. a spouse-with-children
+        // column next to the main column), but for genuinely distinct branches
+        // — different children of the same parent, or independent root trees —
+        // that interleaving can let a deep descendant of one branch end up
+        // horizontally underneath a shallow ancestor of its neighbor. No two
+        // cards actually collide (different generations), but it reads as the
+        // two families overlapping. Reserving each branch's full width avoids
+        // that at the cost of the compaction packSiblingsContour would allow.
+        function packSiblingsBoundingBox(items, desiredGap) {
+            const offsets = [];
+            const combined = new Map();
+            let rightEdge = null;
+            items.forEach((item, i) => {
+                let itemMin = Infinity;
+                let itemMax = -Infinity;
+                item.contour.forEach(range => {
+                    if (range.min < itemMin) itemMin = range.min;
+                    if (range.max > itemMax) itemMax = range.max;
+                });
+                const shift = i === 0 ? 0 : (rightEdge + desiredGap - itemMin);
+                offsets.push(shift);
+                rightEdge = itemMax + shift;
+                mergeContourInto(combined, item.contour, shift);
+            });
+            let width = 0;
+            combined.forEach(range => { if (range.max > width) width = range.max; });
+            return { offsets, contour: combined, width };
+        }
+
         // One column = one person's own card (+ any inline childless spouses
         // widening it) plus their own children, laid out as family units below.
         // Returns local coordinates (relative to this column's own frame, origin 0).
         function layoutColumn(person) {
             const childUnits = (person.children || []).map(child => layoutFamilyUnit(child));
             const packed = childUnits.length
-                ? packSiblingsContour(childUnits.map(u => ({ width: u.width, contour: u.contour })), SIBLING_GAP)
+                ? packSiblingsBoundingBox(childUnits.map(u => ({ width: u.width, contour: u.contour })), SIBLING_GAP)
                 : null;
 
             const inlineSpouses = (person.spouses || []).filter(s => !s.children || s.children.length === 0);
@@ -737,7 +776,7 @@
 
             const rootUnits = roots.map(r => layoutFamilyUnit(r));
             const packed = rootUnits.length > 1
-                ? packSiblingsContour(rootUnits.map(u => ({ width: u.width, contour: u.contour })), ROOT_GAP)
+                ? packSiblingsBoundingBox(rootUnits.map(u => ({ width: u.width, contour: u.contour })), ROOT_GAP)
                 : { offsets: [0] };
 
             rootUnits.forEach((unit, i) => {
