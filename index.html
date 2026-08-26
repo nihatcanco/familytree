@@ -229,6 +229,13 @@
         let personLayoutX = new Map();
         let personRenderGeneration = new Map();
         let personRootColor = new Map();
+        // Inline-childless-spouse id -> the id of the main person they're
+        // attached to. When someone has more than one spouse (e.g. Abdülhakim
+        // with Sıdıka and Nezihe), every marriage line in that row anchors to
+        // the SAME person's own box center, so the whole row reads as one flat
+        // line instead of stair-stepping to each spouse's own (differently
+        // sized) card.
+        let spouseAnchorId = new Map();
 
         // Initialize Lucide Icons on load
         lucide.createIcons();
@@ -638,6 +645,7 @@
                 cursor += INLINE_SPOUSE_GAP;
                 spouseX.set(spouse.id, cursor + CARD_WIDTH / 2);
                 cursor += CARD_WIDTH;
+                spouseAnchorId.set(spouse.id, person.id);
             });
 
             let width = ownX - CARD_WIDTH / 2 + rowRightExtent;
@@ -695,6 +703,7 @@
             personLayoutX = new Map();
             personRenderGeneration = new Map();
             personRootColor = new Map();
+            spouseAnchorId = new Map();
 
             if (roots.length === 0) return { totalWidth: 0 };
 
@@ -926,6 +935,19 @@
                 y: (rect.top - treeRect.top) / currentZoom + rect.height / 2 / currentZoom
             });
             const isGlowCard = (c) => c.classList.contains('highlighted') || c.classList.contains('highlighted-gen') || c.classList.contains('highlighted-spouse');
+            // When one of this pair is recorded as an inline spouse of the
+            // other (see spouseAnchorId), anchor the marriage line to the
+            // anchor's own box center for both endpoints, so someone with
+            // multiple spouses (e.g. Abdülhakim with Sıdıka and Nezihe) gets
+            // one flat line across the whole row instead of stair-stepping
+            // to each spouse's own, differently-sized card. Falls back to
+            // null (caller uses each side's own center) for the rarer case
+            // of two peer "spouse-with-children" columns with no anchor.
+            const getMarriageLineY = (aId, aRect, bId, bRect) => {
+                if (spouseAnchorId.get(Number(bId)) === Number(aId)) return getCenter(aRect).y;
+                if (spouseAnchorId.get(Number(aId)) === Number(bId)) return getCenter(bRect).y;
+                return null;
+            };
 
             Object.values(nodeElements).forEach(card => {
                 const id = card.getAttribute('data-id');
@@ -950,9 +972,13 @@
                         if (!sRect || sRect.width === 0 || sRect.height === 0) return;
                         const sCenter = getCenter(sRect);
 
+                        const sharedY = getMarriageLineY(id, cardRect, sId, sRect);
+                        const myLineY = sharedY !== null ? sharedY : center.y;
+                        const spouseLineY = sharedY !== null ? sharedY : sCenter.y;
+
                         const lineColor = personRootColor.get(Number(id)) || '#94a3b8';
                         const isGlowing = isGlowCard(card) && isGlowCard(spouseCard);
-                        drawCrossLink(svg, center.x, center.y, sCenter.x, sCenter.y, 'spouse', lineColor, null, isGlowing);
+                        drawCrossLink(svg, center.x, myLineY, sCenter.x, spouseLineY, 'spouse', lineColor, null, isGlowing);
                     });
                 }
 
@@ -980,16 +1006,20 @@
                         if (aSpouseIds.includes(bId) && rA && rB && rA.width > 0 && rB.width > 0) {
                             const cA = getCenter(rA);
                             const cB = getCenter(rB);
+                            const marriageY = getMarriageLineY(aId, rA, bId, rB);
                             attachPoints.push({
                                 x: (cA.x + cB.x) / 2,
                                 // Where the drawn line actually starts: the
-                                // marriage line's own midpoint, not below the
-                                // cards — otherwise the couple's X (which falls
-                                // in the gap between their two cards) has nothing
-                                // drawn between the marriage line and the trunk,
-                                // leaving them visually disconnected even though
-                                // they share an X.
-                                startY: (cA.y + cB.y) / 2,
+                                // marriage line's own Y (same anchor-consistent
+                                // height the spouse line itself uses — see
+                                // getMarriageLineY — so this stays correct even
+                                // when the anchor has more than one spouse), not
+                                // below the cards — otherwise the couple's X
+                                // (which falls in the gap between their two
+                                // cards) has nothing drawn between the marriage
+                                // line and the trunk, leaving them visually
+                                // disconnected even though they share an X.
+                                startY: marriageY !== null ? marriageY : (cA.y + cB.y) / 2,
                                 // Where the row "ends" for the purpose of
                                 // centering the shared horizontal junction bar
                                 // below — the actual bottom of the taller card,
