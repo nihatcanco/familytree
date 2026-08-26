@@ -1269,7 +1269,9 @@
         }
 
         // Builds <option> HTML for every person except excludeId, sorted by
-        // name/surname, for the parent-picker selects in the edit form.
+        // name/surname, for the parent/spouse-picker selects in the edit
+        // form. selectedId may be a single id (single-select fields) or an
+        // array of ids (multi-select fields, e.g. spouses).
         function buildPersonOptions(excludeId, selectedId) {
             const options = collectAllPersons(originalRoots)
                 .map(({ person }) => person)
@@ -1287,10 +1289,14 @@
                 return labelA.localeCompare(labelB, 'tr');
             });
 
-            let html = `<option value="" ${selectedId == null ? 'selected' : ''}>— Yok —</option>`;
+            const selectedIds = Array.isArray(selectedId)
+                ? selectedId.filter(id => id != null).map(Number)
+                : (selectedId != null ? [Number(selectedId)] : []);
+
+            let html = `<option value="" ${selectedIds.length === 0 ? 'selected' : ''}>— Yok —</option>`;
             unique.forEach(p => {
                 const label = `${p.name || ''} ${(p.attributes && p.attributes.surname) || ''}`.trim() || `#${p.id}`;
-                const isSelected = selectedId != null && Number(selectedId) === Number(p.id);
+                const isSelected = selectedIds.includes(Number(p.id));
                 html += `<option value="${p.id}" ${isSelected ? 'selected' : ''}>${escapeHTML(label)} (ID: ${p.id})</option>`;
             });
             return html;
@@ -1301,6 +1307,7 @@
             const attrs = node.attributes || {};
             const genderVal = attrs.gender || '';
             const parentIds = (node._parentIds || []).map(Number);
+            const spouseIds = (node._spouseIds || []).map(Number);
 
             personDetailsContent.innerHTML = `
                 <div class="flex flex-col gap-2">
@@ -1346,6 +1353,12 @@
                         <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 2</span>
                         <select id="edit-field-parent2" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             ${buildPersonOptions(node.id, parentIds[1])}
+                        </select>
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Eş</span>
+                        <select id="edit-field-spouse" multiple size="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            ${buildPersonOptions(node.id, spouseIds)}
                         </select>
                     </label>
                     <div id="edit-form-error" class="text-[11px] text-red-500 hidden"></div>
@@ -1400,6 +1413,12 @@
             }
             const parentIds = [parent1Id, parent2Id].filter(id => id !== null);
 
+            const spouseSelect = document.getElementById('edit-field-spouse');
+            const spouseIds = Array.from(spouseSelect.selectedOptions)
+                .map(opt => opt.value)
+                .filter(v => v !== '')
+                .map(Number);
+
             const saveBtn = document.getElementById('btn-save-details');
             saveBtn.disabled = true;
             saveBtn.textContent = 'Kaydediliyor...';
@@ -1414,6 +1433,7 @@
                     dateofdeath: dateofdeath || null,
                     note: note || null,
                     parentIds,
+                    spouseIds,
                 });
 
                 // Parent changes can move this person to a different branch of
@@ -1495,9 +1515,10 @@
         }
 
         // Renders the details panel in "create a new person" mode: same
-        // field set as the edit form, plus a spouse picker (the edit form
-        // has no equivalent, since editing an existing person's marriages
-        // isn't otherwise supported here).
+        // field set as the edit form (a single-select spouse picker here,
+        // since a brand-new person can only be entering one marriage at
+        // creation time — the edit form's multi-select handles anyone with
+        // more than one recorded spouse).
         function showPersonCreateForm() {
             currentDetailsPersonId = null;
 
