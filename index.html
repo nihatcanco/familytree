@@ -8,8 +8,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons via reliable CDN -->
     <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
-    <!-- sql.js for SQLite in the browser -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.min.js"></script>
 
     <style>
         /* --- CSS for the Tree Layout ---
@@ -132,6 +130,9 @@
             <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
                 <span>Kişi Detayları</span>
                 <div class="flex items-center gap-1.5">
+                    <button id="btn-edit-details" class="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Düzenle">
+                        <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                    </button>
                     <button id="btn-close-details" class="p-1 -mr-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Kapat">
                         <i data-lucide="x" class="w-3.5 h-3.5"></i>
                     </button>
@@ -169,9 +170,15 @@
     </div>
 
     <!-- Application Logic -->
-    <script>
+    <script type="module">
+    import { getTree, updatePerson } from './js/api.js';
+    import {
+        CARD_WIDTH, ROW_GAP,
+        buildHierarchy, computeTreeLayout, collectAllPersons, pruneForFocus, findPersonNode
+    } from './js/tree-model.js';
+
     document.addEventListener('DOMContentLoaded', () => {
-        
+
         // Setup global error handling so you don't have to check the console
         window.onerror = function(message, source, lineno, colno, error) {
             const errDiv = document.getElementById('error-overlay');
@@ -208,6 +215,7 @@
         const personDetailsPanel = document.getElementById('person-details-panel');
         const personDetailsContent = document.getElementById('person-details-content');
         const btnCloseDetails = document.getElementById('btn-close-details');
+        const btnEditDetails = document.getElementById('btn-edit-details');
 
         const generationLegend = document.getElementById('generation-legend');
         const legendList = document.getElementById('legend-list');
@@ -223,6 +231,9 @@
         let searchResults = [];
         let currentSearchIndex = -1;
         let originalRoots = []; // full (unfocused) hierarchy, set once after load
+        // The id of whichever person is currently shown in the details panel,
+        // so the Edit/Save flow knows which tree node to update.
+        let currentDetailsPersonId = null;
 
         // Tidy-tree layout output, keyed by person id. Recomputed by
         // computeTreeLayout() on every render (initial load + focus toggle).
@@ -270,29 +281,6 @@
             { hex: '#10b981', rgba: 'rgba(16, 185, 129, 0.3)' },  // 14: Zümrüt
             { hex: '#64748b', rgba: 'rgba(100, 116, 139, 0.3)' }  // 15: Arduvaz (Gri-Mavi)
         ];
-
-        // Per-independent-root-tree line color (a root is a person with no recorded
-        // parents; two roots only linked via a marriage further down still each get
-        // their own color so the connecting cross-tree line is easy to trace).
-        const treeLineColors = [
-            '#64748b', // 1: Arduvaz (Default)
-            '#78716c', // 2: Taş / Sıcak Gri (Stone 500)
-            '#0f766e', // 3: Koyu Turkuaz (Teal 700)
-            '#9f1239', // 4: Koyu Gül / Bordo (Rose 800)
-            '#4338ca', // 5: Koyu İndigo (Indigo 700)
-            '#4d7c0f', // 6: Koyu Zeytin Yeşili (Lime 700)
-            '#a21caf', // 7: Koyu Eflatun (Fuchsia 700)
-            '#b45309', // 8: Koyu Kehribar / Kahve (Amber 700)
-            '#334155'  // 9: Koyu Arduvaz (Slate 700)
-        ];
-
-        // Utility: Parse ID lists safely
-        function parseIds(value) {
-            if (!value) return [];
-            if (Array.isArray(value)) return value;
-            try { return JSON.parse(value); } 
-            catch(e) { return [value]; }
-        }
 
         // Utility: Generate HTML for a person's card to prevent code duplication
         function generateCardHTML(person, isSpouse = false) {
@@ -356,454 +344,6 @@
             return html;
         }
 
-
-        // Transform flat SQL-like data into the hierarchical format
-        function buildHierarchy(flatData) {
-            const nodeMap = new Map();
-            
-            // First pass: create node objects and map them
-            flatData.forEach(row => {
-                const node = {
-                    id: row.id,
-                    name: row.name,
-                    photoUrl: row.photoUrl,
-                    attributes: {},
-                    _parentIds: [],
-                    _spouseIds: [],
-                    _visited: false,
-                    _addedAsChild: false,
-                    _generation: null
-                };
-                
-                node._parentIds = parseIds(row.parentIds);
-                node._spouseIds = parseIds(row.spouseIds);
-                
-                if (row.surname) node.attributes.surname = row.surname;
-                if (row.birthplace) node.attributes.birthplace = row.birthplace;
-                if (row.birthdate) node.attributes.birthdate = row.birthdate;
-                if (row.gender === 1) node.attributes.gender = 'Male';
-                if (row.gender === 2) node.attributes.gender = 'Female';
-                if (row.note) node.attributes.note = row.note;
-                
-                nodeMap.set(Number(row.id), node);
-            });
-
-            // Hızlı erişim için çocuk haritası oluşturma (O(1) lookup)
-            const childMap = new Map();
-            nodeMap.forEach(n => {
-                n._parentIds.forEach(pid => {
-                    const pNum = Number(pid);
-                    if (!childMap.has(pNum)) childMap.set(pNum, []);
-                    childMap.get(pNum).push(n);
-                });
-            });
-
-            // Global Jenerasyon Senkronizasyonu (Tüm farklı kökleri ve çapraz bağları hizalar)
-            nodeMap.forEach((startNode) => {
-                if (startNode._generation !== null) return; // Zaten işlenmişse atla
-                
-                startNode._generation = 0;
-                const queue = [startNode];
-                const componentNodes = [startNode];
-                
-                while(queue.length > 0) {
-                    const current = queue.shift();
-                    
-                    // Çocuklara jenerasyon (n + 1) ata
-                    const children = childMap.get(Number(current.id)) || [];
-                    children.forEach(child => {
-                        if (child._generation === null) {
-                            child._generation = current._generation + 1;
-                            queue.push(child);
-                            componentNodes.push(child);
-                        }
-                    });
-                    
-                    // Ebeveynlere jenerasyon (n - 1) ata
-                    current._parentIds.forEach(pid => {
-                        const parent = nodeMap.get(Number(pid));
-                        if (parent && parent._generation === null) {
-                            parent._generation = current._generation - 1;
-                            queue.push(parent);
-                            componentNodes.push(parent);
-                        }
-                    });
-                    
-                    // Eşlere aynı jenerasyonu ata
-                    current._spouseIds.forEach(sid => {
-                        const spouse = nodeMap.get(Number(sid));
-                        if (spouse && spouse._generation === null) {
-                            spouse._generation = current._generation;
-                            queue.push(spouse);
-                            componentNodes.push(spouse);
-                        }
-                    });
-                }
-                
-                // En düşük jenerasyonun 1 olmasını sağlayarak değerleri normalize et
-                const minGen = Math.min(...componentNodes.map(n => n._generation));
-                const offset = 1 - minGen;
-                componentNodes.forEach(n => n._generation += offset);
-            });
-
-            // Eş Jenerasyon Sabitleme (Spousal Grounding)
-            // Kayıtlı ebeveyni OLMAYAN bir kişinin jenerasyonu, aslında hiçbir soy
-            // bilgisine dayanmaz — yukarıdaki BFS'in hangi sırayla ilerlediğine
-            // bağlı rastgele bir değerdir (örn. Zeynep'in ID:313 hiç ebeveyni yok,
-            // ama eşi Ayedin Molla'dan farklı bir jenerasyona düşebiliyordu).
-            // Böyle "sabitlenmemiş" biri, kayıtlı ebeveyni OLAN (dolayısıyla
-            // gerçek bir soy derinliğine sahip) eşinin jenerasyonuna çekilir.
-            // Bu, çocukların jenerasyonunu hesaplayan aşağıdaki geçişten ÖNCE
-            // yapılmalı ki çocuklar da doğru (düzeltilmiş) ebeveyn değerini kullansın.
-            let spouseChanged = true;
-            let spouseIterations = 0;
-            const maxSpouseIterations = nodeMap.size + 5;
-            while (spouseChanged && spouseIterations < maxSpouseIterations) {
-                spouseChanged = false;
-                spouseIterations++;
-                nodeMap.forEach(node => {
-                    const hasOwnParents = node._parentIds.some(pid => nodeMap.has(Number(pid)));
-                    if (hasOwnParents) return; // has real recorded ancestry — don't override it
-                    node._spouseIds.forEach(sid => {
-                        const spouse = nodeMap.get(Number(sid));
-                        if (spouse && spouse._generation !== node._generation) {
-                            node._generation = spouse._generation;
-                            spouseChanged = true;
-                        }
-                    });
-                });
-            }
-
-            // Jenerasyon Tutarlılık Düzeltmesi (Relaxation Pass)
-            // BFS, eşler arası jenerasyon farkı olan (örn. akraba evliliği/yaş farkı büyük evlilikler)
-            // durumlarda gezinme sırasına bağlı olarak kardeşlere farklı jenerasyon numaraları
-            // atayabiliyordu (aynı ebeveynlerin çocukları farklı jenerasyonlarda görünüyordu).
-            // Bu döngü, her çocuğun jenerasyonunun ebeveynlerinden en az 1 fazla olmasını garanti
-            // ederek Focus modundaki dikey hizalama bozukluklarını giderir.
-            let genChanged = true;
-            let genIterations = 0;
-            const maxGenIterations = nodeMap.size + 5;
-            while (genChanged && genIterations < maxGenIterations) {
-                genChanged = false;
-                genIterations++;
-                nodeMap.forEach(node => {
-                    node._parentIds.forEach(pid => {
-                        const parent = nodeMap.get(Number(pid));
-                        if (parent) {
-                            const desired = parent._generation + 1;
-                            if (node._generation < desired) {
-                                node._generation = desired;
-                                genChanged = true;
-                            }
-                        }
-                    });
-                });
-            }
-
-            const roots = [];
-            nodeMap.forEach(node => {
-                // Nodes with no parents, or whose parents don't exist in the dataset, are roots
-                const hasExistingParent = node._parentIds.some(pid => nodeMap.has(Number(pid)));
-                if (!hasExistingParent) {
-                    // Prevent nodes that are just spouses of someone with parents from becoming independent roots
-                    const hasSpouseWithParent = node._spouseIds.some(spouseId => {
-                        const spouse = nodeMap.get(Number(spouseId));
-                        return spouse && spouse._parentIds.some(pid => nodeMap.has(Number(pid)));
-                    });
-                    
-                    if (!hasSpouseWithParent) {
-                        roots.push(node);
-                    }
-                }
-            });
-
-            function buildNode(nodeId, asSpouse = false) {
-                const node = nodeMap.get(Number(nodeId));
-                if (!node) return null;
-                
-                // If already visited, return null to prevent duplication and cycles
-                if (node._visited) return null; 
-                node._visited = true;
-
-                const result = { 
-                    id: node.id,
-                    _parentIds: node._parentIds,
-                    _spouseIds: node._spouseIds,
-                    _generation: node._generation,
-                    name: node.name, 
-                    photoUrl: node.photoUrl,
-                    attributes: { ...node.attributes }, 
-                    children: [], 
-                    spouses: [] 
-                };
-
-                // 1. Claim direct children first so they fall under the correct parent
-                const children = childMap.get(Number(node.id)) || [];
-                children.forEach(potentialChild => {
-                    if (!potentialChild._addedAsChild) {
-                        potentialChild._addedAsChild = true;
-                        const childNode = buildNode(potentialChild.id, false);
-                        if (childNode) result.children.push(childNode);
-                    }
-                });
-
-                // 2. Attach spouses
-                if (!asSpouse) {
-                    node._spouseIds.forEach(spouseId => {
-                        const spouseNode = buildNode(spouseId, true);
-                        if (spouseNode) result.spouses.push(spouseNode);
-                    });
-                }
-                return result;
-            }
-
-            return roots.map(root => buildNode(root.id, false)).filter(Boolean);
-        }
-
-        // --- Tidy-tree layout ---
-        // Cards are fixed-width (200px) and only vary in height, so the X layout is
-        // a pure function of the hierarchy (buildHierarchy's output) with no DOM
-        // measurement needed. Y is generation-driven: every row's height is measured
-        // once after render, then each card is placed at the cumulative Y for its
-        // own generation — so a card's vertical position always matches its real
-        // generation, regardless of how deep it happens to sit in the DOM/hierarchy.
-        //
-        // The X algorithm is a Reingold-Tilford/Walker-style "tidy tree": a parent
-        // centers over the midpoint of its immediate children (not the full width of
-        // its entire subtree), and sibling subtrees are packed as tightly as contour
-        // comparison allows *at every generation*, not just their own row. That's
-        // what lets a short sibling's subtree end early and a neighboring deep
-        // sibling's much wider lower generations slide in closer, instead of
-        // reserving dead rectangular space the way naive nested-flexbox centering
-        // does (the original bug this replaces).
-        const CARD_WIDTH = 200;
-        const INLINE_SPOUSE_GAP = 40;   // gap between a person and an inline childless spouse
-        const COLUMN_GAP = 60;          // gap between a person's column and a spouse-with-children column
-        // Deliberately much bigger than COLUMN_GAP: a married couple's columns
-        // should read as one unit, but different children of the same parent
-        // each head their own branch — often carrying entirely different
-        // in-law surnames a few generations down — and a small gap makes that
-        // split look like incidental whitespace rather than an intentional
-        // "these are separate family lines" boundary.
-        const SIBLING_GAP = 160;        // gap between different children (family units) of the same parent
-        const ROOT_GAP = 240;           // gap between independent top-level root trees
-        const ROW_GAP = 70;             // vertical gap between generation rows
-
-        // Merge a contour (Map<generation, {min,max}>), shifted by shiftX, into an
-        // accumulator contour in place.
-        function mergeContourInto(acc, contour, shiftX) {
-            contour.forEach((range, gen) => {
-                const min = range.min + shiftX;
-                const max = range.max + shiftX;
-                const prior = acc.get(gen);
-                if (prior) {
-                    acc.set(gen, { min: Math.min(prior.min, min), max: Math.max(prior.max, max) });
-                } else {
-                    acc.set(gen, { min, max });
-                }
-            });
-        }
-
-        // Pack a left-to-right sequence of items (each { width, contour }) as
-        // tightly as contour comparison allows: for each item, find the minimal
-        // rightward shift so its own contour doesn't overlap everything already
-        // placed, checked at every generation they share (not just the top row).
-        function packSiblingsContour(items, desiredGap) {
-            const offsets = [];
-            const combined = new Map();
-            items.forEach((item, i) => {
-                let shift = 0;
-                if (i > 0) {
-                    item.contour.forEach((range, gen) => {
-                        const prior = combined.get(gen);
-                        if (prior) {
-                            const needed = prior.max + desiredGap - range.min;
-                            if (needed > shift) shift = needed;
-                        }
-                    });
-                }
-                offsets.push(shift);
-                mergeContourInto(combined, item.contour, shift);
-            });
-            let width = 0;
-            combined.forEach(range => { if (range.max > width) width = range.max; });
-            return { offsets, contour: combined, width };
-        }
-
-        // Like packSiblingsContour, but packs each item by its FULL bounding
-        // box (leftmost to rightmost point across every generation it has),
-        // never letting one item's deeper generations slide in next to another
-        // item's shallower ones. packSiblingsContour's interleaving is exactly
-        // right for compaction *within* one family (e.g. a spouse-with-children
-        // column next to the main column), but for genuinely distinct branches
-        // — different children of the same parent, or independent root trees —
-        // that interleaving can let a deep descendant of one branch end up
-        // horizontally underneath a shallow ancestor of its neighbor. No two
-        // cards actually collide (different generations), but it reads as the
-        // two families overlapping. Reserving each branch's full width avoids
-        // that at the cost of the compaction packSiblingsContour would allow.
-        function packSiblingsBoundingBox(items, desiredGap) {
-            const offsets = [];
-            const combined = new Map();
-            let rightEdge = null;
-            items.forEach((item, i) => {
-                let itemMin = Infinity;
-                let itemMax = -Infinity;
-                item.contour.forEach(range => {
-                    if (range.min < itemMin) itemMin = range.min;
-                    if (range.max > itemMax) itemMax = range.max;
-                });
-                const shift = i === 0 ? 0 : (rightEdge + desiredGap - itemMin);
-                offsets.push(shift);
-                rightEdge = itemMax + shift;
-                mergeContourInto(combined, item.contour, shift);
-            });
-            let width = 0;
-            combined.forEach(range => { if (range.max > width) width = range.max; });
-            return { offsets, contour: combined, width };
-        }
-
-        // One column = one person's own card (+ any inline childless spouses
-        // widening it) plus their own children, laid out as family units below.
-        // Returns local coordinates (relative to this column's own frame, origin 0).
-        function layoutColumn(person) {
-            const childUnits = (person.children || []).map(child => layoutFamilyUnit(child));
-            const packed = childUnits.length
-                ? packSiblingsBoundingBox(childUnits.map(u => ({ width: u.width, contour: u.contour })), SIBLING_GAP)
-                : null;
-
-            const inlineSpouses = (person.spouses || []).filter(s => !s.children || s.children.length === 0);
-            // The combined row is NOT symmetric around the person's own card: it
-            // starts at the person's card and extends rightward through each
-            // inline spouse, so its right edge is CARD_WIDTH further per spouse —
-            // not centered on ownX the way a plain width/2 split would assume.
-            const rowRightExtent = CARD_WIDTH + inlineSpouses.length * (CARD_WIDTH + INLINE_SPOUSE_GAP);
-            // Children should hang centered under the whole marriage (this
-            // person's card plus any inline spouses), not just this person's own
-            // card — otherwise a couple's descendants visibly skew toward
-            // whichever parent happens to be "person" vs "spouse" in the data.
-            // This is the offset from ownX to the row's true center.
-            const rowCenterOffset = rowRightExtent / 2 - CARD_WIDTH / 2;
-
-            let ownX;
-            const contour = new Map();
-            if (packed) {
-                const firstAnchor = packed.offsets[0] + childUnits[0].anchorX;
-                const lastAnchor = packed.offsets[packed.offsets.length - 1] + childUnits[childUnits.length - 1].anchorX;
-                const midpoint = (firstAnchor + lastAnchor) / 2;
-                const desiredOwnX = midpoint - rowCenterOffset;
-                // Don't let the person's own card (or, if shifted left for the
-                // centering above, the row) poke past the left edge of the frame.
-                const frameShift = Math.max(0, CARD_WIDTH / 2 - desiredOwnX);
-                ownX = desiredOwnX + frameShift;
-                mergeContourInto(contour, packed.contour, frameShift);
-                childUnits.forEach((u, i) => { u.finalOffset = packed.offsets[i] + frameShift; });
-            } else {
-                ownX = CARD_WIDTH / 2;
-            }
-            // Safe to set directly (not merge): a child's generation is always
-            // strictly greater than its parent's, so this key is never already present.
-            contour.set(person._generation, { min: ownX - CARD_WIDTH / 2, max: ownX - CARD_WIDTH / 2 + rowRightExtent });
-
-            const spouseX = new Map();
-            let cursor = ownX + CARD_WIDTH / 2;
-            inlineSpouses.forEach(spouse => {
-                cursor += INLINE_SPOUSE_GAP;
-                spouseX.set(spouse.id, cursor + CARD_WIDTH / 2);
-                cursor += CARD_WIDTH;
-                spouseAnchorId.set(spouse.id, person.id);
-            });
-
-            let width = ownX - CARD_WIDTH / 2 + rowRightExtent;
-            contour.forEach(r => { if (r.max > width) width = r.max; });
-
-            return { person, ownX, spouseX, childUnits, width, contour };
-        }
-
-        // A family unit is one entry in a parent's children[] list: the child's own
-        // column plus any of THEIR spouses-with-children, side by side at the same row.
-        function layoutFamilyUnit(person) {
-            const spousesWithChildren = (person.spouses || []).filter(s => s.children && s.children.length > 0);
-            const columns = [layoutColumn(person), ...spousesWithChildren.map(s => layoutColumn(s))];
-            const packed = columns.length > 1
-                ? packSiblingsContour(columns.map(c => ({ width: c.width, contour: c.contour })), COLUMN_GAP)
-                : { offsets: [0], contour: columns[0].contour, width: columns[0].width };
-
-            columns.forEach((c, i) => { c.finalOffset = packed.offsets[i]; });
-
-            const firstX = packed.offsets[0] + columns[0].ownX;
-            const lastX = packed.offsets[packed.offsets.length - 1] + columns[columns.length - 1].ownX;
-            const anchorX = (firstX + lastX) / 2;
-
-            return { person, columns, anchorX, width: packed.width, contour: packed.contour };
-        }
-
-        // Top-down pass: convert the local offsets computed above into absolute
-        // page-space X, writing into the module-level lookup maps.
-        function recordColumn(col, originX, rootColor) {
-            personLayoutX.set(col.person.id, originX + col.ownX);
-            personRenderGeneration.set(col.person.id, col.person._generation);
-            personRootColor.set(col.person.id, rootColor);
-            col.spouseX.forEach((x, spouseId) => {
-                personLayoutX.set(spouseId, originX + x);
-                // An inline childless spouse has no subtree of their own to keep
-                // consistent, so render them on their anchor partner's row.
-                personRenderGeneration.set(spouseId, col.person._generation);
-                personRootColor.set(spouseId, rootColor);
-            });
-            col.childUnits.forEach(unit => {
-                assignAbsolutePositions(unit, originX + unit.finalOffset, rootColor);
-            });
-        }
-
-        function assignAbsolutePositions(familyUnit, originX, rootColor) {
-            familyUnit.columns.forEach(col => {
-                recordColumn(col, originX + col.finalOffset, rootColor);
-            });
-        }
-
-        // Runs the full X layout over the (possibly pruned) hierarchy and populates
-        // personLayoutX / personRenderGeneration / personRootColor. Returns the
-        // total width needed, in local pixels (pre-zoom).
-        function computeTreeLayout(roots) {
-            personLayoutX = new Map();
-            personRenderGeneration = new Map();
-            personRootColor = new Map();
-            spouseAnchorId = new Map();
-
-            if (roots.length === 0) return { totalWidth: 0 };
-
-            const rootUnits = roots.map(r => layoutFamilyUnit(r));
-            const packed = rootUnits.length > 1
-                ? packSiblingsBoundingBox(rootUnits.map(u => ({ width: u.width, contour: u.contour })), ROOT_GAP)
-                : { offsets: [0] };
-
-            rootUnits.forEach((unit, i) => {
-                const color = treeLineColors[i % treeLineColors.length];
-                assignAbsolutePositions(unit, packed.offsets[i], color);
-            });
-
-            let totalWidth = 0;
-            rootUnits.forEach((unit, i) => {
-                const right = packed.offsets[i] + unit.width;
-                if (right > totalWidth) totalWidth = right;
-            });
-            return { totalWidth };
-        }
-
-        // Flatten the hierarchy into every rendered person once (each person
-        // appears exactly once in buildHierarchy's output, as either a child or a
-        // spouse entry somewhere).
-        function collectAllPersons(roots) {
-            const result = [];
-            function visit(person, isSpouse) {
-                result.push({ person, isSpouse });
-                (person.children || []).forEach(child => visit(child, false));
-                (person.spouses || []).forEach(spouse => visit(spouse, true));
-            }
-            roots.forEach(r => visit(r, false));
-            return result;
-        }
 
         // Measures each currently-rendered card's natural height, groups by its
         // render generation, and places every card at the cumulative Y for that
@@ -894,7 +434,12 @@
         // Full render pipeline: compute X layout, emit flat absolutely-positioned
         // cards, apply X, measure+apply Y, size the container, draw connectors.
         async function renderTreeFromHierarchy(roots) {
-            const { totalWidth } = computeTreeLayout(roots);
+            const layout = computeTreeLayout(roots);
+            const { totalWidth } = layout;
+            personLayoutX = layout.personLayoutX;
+            personRenderGeneration = layout.personRenderGeneration;
+            personRootColor = layout.personRootColor;
+            spouseAnchorId = layout.spouseAnchorId;
 
             const persons = collectAllPersons(roots);
             let html = '';
@@ -921,28 +466,6 @@
             drawCrossTreeLinks();
             attachResizeObserver();
         }
-
-        // For focus mode: keep only people in visibleIds, promoting any visible
-        // descendant to its own top-level entry when its real ancestor isn't
-        // visible (rather than dropping it, since there's no DOM nesting to hang
-        // it from anymore).
-        function pruneForFocus(persons, visibleIds) {
-            const out = [];
-            persons.forEach(person => {
-                const childResults = pruneForFocus(person.children || [], visibleIds);
-                const spouseResults = (person.spouses || [])
-                    .filter(s => visibleIds.has(s.id))
-                    .map(s => ({ ...s, children: pruneForFocus(s.children || [], visibleIds) }));
-                if (visibleIds.has(person.id)) {
-                    out.push({ ...person, children: childResults, spouses: spouseResults });
-                } else {
-                    out.push(...childResults);
-                    spouseResults.forEach(s => { if (s.children.length) out.push(s); });
-                }
-            });
-            return out;
-        }
-
 
         // --- Cross Tree Linking Logic ---
         // Lines are collected first (as {x1,y1,x2,y2,type,...} defs) rather than
@@ -1211,67 +734,8 @@
         // Fetch Data and Render Tree Logic
         async function loadAndRenderTree() {
             try {
-                // Initialize sql.js WebAssembly
-                const SQL = await initSqlJs({
-                    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
-                });
-
-                const dbFileName = 'data.sqlite';
-                // Add a cache-busting timestamp to prevent the browser from serving a stale cached file
-                const response = await fetch(`${dbFileName}?t=${Date.now()}`);
-                if (!response.ok) {
-                    throw new Error(`Failed to load ${dbFileName} (${response.status}: ${response.statusText}). Note: Browsers block fetch requests on the file:// protocol. Please serve this folder using a local web server.`);
-                }
-                
-                // Read the database file into memory
-                const buffer = await response.arrayBuffer();
-                const db = new SQL.Database(new Uint8Array(buffer));
-
-                // Query the database
-                const peopleStmt = db.prepare("SELECT * FROM People");
-                const people = [];
-                while (peopleStmt.step()) {
-                    people.push(peopleStmt.getAsObject());
-                }
-                peopleStmt.free();
-
-                const spousesStmt = db.prepare("SELECT * FROM Spouses");
-                const spouses = [];
-                while (spousesStmt.step()) {
-                    spouses.push(spousesStmt.getAsObject());
-                }
-                spousesStmt.free();
-
-                const parentsStmt = db.prepare("SELECT * FROM Parents");
-                const parents = [];
-                while (parentsStmt.step()) {
-                    parents.push(parentsStmt.getAsObject());
-                }
-                parentsStmt.free();
-
-                db.close();
-                
-                const parsed = people.map(person => {
-                    const spouseIds = spouses
-                        .filter(s => s.spouse1Id === person.id || s.spouse2Id === person.id)
-                        .map(s => s.spouse1Id === person.id ? s.spouse2Id : s.spouse1Id);
-
-                    const parentIds = parents
-                        .filter(p => p.childId === person.id)
-                        .flatMap(p => [p.parent1Id, p.parent2Id])
-                        .filter(id => id != null);
-
-                    return { ...person, spouseIds, parentIds };
-                });
-
-                let roots = [];
-                // Detect if data is a flat SQL export instead of a tree
-                const isFlatSqlData = Array.isArray(parsed) && parsed.length > 0 && 'id' in parsed[0];
-                if (isFlatSqlData) {
-                    roots = buildHierarchy(parsed);
-                } else {
-                    roots = Array.isArray(parsed) ? parsed : [parsed];
-                }
+                const { people } = await getTree();
+                const roots = buildHierarchy(people);
                 originalRoots = roots;
 
                 // Build Tree
@@ -1689,6 +1153,201 @@
         scrollContainer.addEventListener('scroll', updateMinimapViewport);
         window.addEventListener('resize', drawMinimap);
 
+        // --- Person Details: view / edit / save ---
+
+        // Renders the read-only "Kişi Detayları" panel content for one person
+        // ({name, id, photoUrl, attributes}, same shape as a card's data-details).
+        function showPersonDetailsView(details) {
+            currentDetailsPersonId = Number(details.id);
+
+            const name = details.name || "UNKNOWN";
+            const surname = (details.attributes && details.attributes.surname) ? details.attributes.surname : '';
+            const gender = (details.attributes && details.attributes.gender) ? details.attributes.gender : '';
+            let genderIcon = '';
+            if (gender === 'Male') {
+                genderIcon = '<i data-lucide="mars" class="w-3 h-3 text-sky-400 inline-block align-middle mr-1"></i>';
+            } else if (gender === 'Female') {
+                genderIcon = '<i data-lucide="venus" class="w-3 h-3 text-rose-400 inline-block align-middle mr-1"></i>';
+            }
+
+            let detailsHTML = '';
+            if (details.photoUrl) {
+                detailsHTML += `<img src="${escapeHTML(details.photoUrl)}" alt="Portrait" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-slate-100 shadow-sm shrink-0">`;
+            } else {
+                detailsHTML += `<div class="w-16 h-16 rounded-full bg-slate-50 mx-auto mb-2 flex items-center justify-center border-2 border-slate-100 shadow-sm shrink-0"><i data-lucide="user" class="w-8 h-8 text-slate-300"></i></div>`;
+            }
+
+            detailsHTML += `<div class="font-bold text-slate-900 text-sm ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</div>`;
+            if (surname) {
+                detailsHTML += `<div class="font-semibold text-slate-700 text-sm mb-1">${escapeHTML(surname)}</div>`;
+            }
+            detailsHTML += `<div class="text-[10px] text-slate-400 font-mono mb-2 border-b border-slate-100 pb-2">${genderIcon}ID: ${escapeHTML(details.id)}</div>`;
+
+            const displayAttributes = Object.keys(details.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
+            if (displayAttributes.length > 0) {
+                for (const key of displayAttributes) {
+                    const value = details.attributes[key];
+                    if (key === 'note') {
+                        detailsHTML += `
+                            <div class="bg-amber-50 px-2 py-1.5 rounded-md border border-amber-100">
+                                <div class="font-semibold text-slate-800 text-[10px] uppercase mb-0.5">${escapeHTML(key)}</div>
+                                <div class="whitespace-normal break-words text-slate-800">${escapeHTML(value)}</div>
+                            </div>`;
+                    } else {
+                        detailsHTML += `
+                            <div class="bg-slate-50 px-2 py-1.5 rounded-md border border-slate-100">
+                                <div class="font-semibold text-slate-700 text-[10px] uppercase mb-0.5">${escapeHTML(key)}</div>
+                                <div class="whitespace-normal break-words text-slate-800">${escapeHTML(value)}</div>
+                            </div>`;
+                    }
+                }
+            }
+            personDetailsContent.innerHTML = detailsHTML;
+            personDetailsPanel.classList.remove('hidden');
+            personDetailsPanel.classList.add('flex');
+            if (btnEditDetails) btnEditDetails.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        // Depth-first search for a node by id across the full hierarchy (a
+        // person can appear as a child entry or a spouse entry of another node).
+        function findPersonNode(nodes, id) {
+            for (const node of (nodes || [])) {
+                if (Number(node.id) === Number(id)) return node;
+                const childHit = findPersonNode(node.children, id);
+                if (childHit) return childHit;
+                const spouseHit = findPersonNode(node.spouses, id);
+                if (spouseHit) return spouseHit;
+            }
+            return null;
+        }
+
+        // Swaps the details panel into an editable form for the given person node.
+        function showPersonDetailsEdit(node) {
+            const attrs = node.attributes || {};
+            const genderVal = attrs.gender || '';
+
+            personDetailsContent.innerHTML = `
+                <div class="flex flex-col gap-2">
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ad</span>
+                        <input type="text" id="edit-field-name" value="${escapeHTML(node.name || '')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Soyad</span>
+                        <input type="text" id="edit-field-surname" value="${escapeHTML(attrs.surname || '')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Cinsiyet</span>
+                        <select id="edit-field-gender" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            <option value="" ${genderVal === '' ? 'selected' : ''}>Bilinmiyor</option>
+                            <option value="Male" ${genderVal === 'Male' ? 'selected' : ''}>Erkek</option>
+                            <option value="Female" ${genderVal === 'Female' ? 'selected' : ''}>Kadın</option>
+                        </select>
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Doğum Tarihi</span>
+                        <input type="text" id="edit-field-birthdate" value="${escapeHTML(attrs.birthdate || '')}" placeholder="GG.AA.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Doğum Yeri</span>
+                        <input type="text" id="edit-field-birthplace" value="${escapeHTML(attrs.birthplace || '')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Not</span>
+                        <textarea id="edit-field-note" rows="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white resize-none">${escapeHTML(attrs.note || '')}</textarea>
+                    </label>
+                    <div id="edit-form-error" class="text-[11px] text-red-500 hidden"></div>
+                    <div class="flex gap-2 mt-1">
+                        <button id="btn-save-details" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Kaydet</button>
+                        <button id="btn-cancel-edit-details" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">İptal</button>
+                    </div>
+                </div>`;
+
+            if (btnEditDetails) btnEditDetails.classList.add('hidden');
+
+            document.getElementById('edit-field-name').focus();
+            document.getElementById('btn-cancel-edit-details').addEventListener('click', () => {
+                showPersonDetailsView({ name: node.name, id: node.id, photoUrl: node.photoUrl, attributes: node.attributes });
+            });
+            document.getElementById('btn-save-details').addEventListener('click', () => saveDetailsEdit(node));
+        }
+
+        // Saves the edited fields through the /api/people/:id endpoint (see
+        // js/api.js and server.py — the server owns data.sqlite and writes
+        // the update directly, so there's no browser file-write API or
+        // download involved), updates the in-memory hierarchy to match, then
+        // re-renders the tree and returns the panel to view mode.
+        async function saveDetailsEdit(node) {
+            const errEl = document.getElementById('edit-form-error');
+            const showFormError = (msg) => {
+                errEl.textContent = msg;
+                errEl.classList.remove('hidden');
+            };
+
+            const name = document.getElementById('edit-field-name').value.trim();
+            if (!name) {
+                showFormError('Ad boş olamaz.');
+                return;
+            }
+            const surname = document.getElementById('edit-field-surname').value.trim();
+            const genderStr = document.getElementById('edit-field-gender').value; // '', 'Male', 'Female'
+            const birthdate = document.getElementById('edit-field-birthdate').value.trim();
+            const birthplace = document.getElementById('edit-field-birthplace').value.trim();
+            const note = document.getElementById('edit-field-note').value.trim();
+            const genderNum = genderStr === 'Male' ? 1 : genderStr === 'Female' ? 2 : 0;
+
+            const saveBtn = document.getElementById('btn-save-details');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Kaydediliyor...';
+
+            try {
+                await updatePerson(node.id, {
+                    name,
+                    surname: surname || null,
+                    gender: genderNum,
+                    birthdate: birthdate || null,
+                    birthplace: birthplace || null,
+                    note: note || null,
+                });
+
+                node.name = name;
+                node.attributes = {};
+                if (surname) node.attributes.surname = surname;
+                if (birthplace) node.attributes.birthplace = birthplace;
+                if (birthdate) node.attributes.birthdate = birthdate;
+                if (genderStr) node.attributes.gender = genderStr;
+                if (note) node.attributes.note = note;
+
+                // Re-render, preserving whatever highlight/focus state was active.
+                const highlightState = captureHighlightState();
+                if (isFocusMode) {
+                    const visibleIds = new Set(highlightState.keys());
+                    await renderTreeFromHierarchy(pruneForFocus(originalRoots, visibleIds));
+                } else {
+                    await renderTreeFromHierarchy(originalRoots);
+                }
+                applyHighlightState(highlightState);
+                drawCrossTreeLinks();
+                drawMinimap();
+
+                showPersonDetailsView({ name: node.name, id: node.id, photoUrl: node.photoUrl, attributes: node.attributes });
+            } catch (err) {
+                showFormError('Kaydetme başarısız: ' + err.message);
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Kaydet';
+            }
+        }
+
+        if (btnEditDetails) {
+            btnEditDetails.addEventListener('click', () => {
+                if (currentDetailsPersonId === null) return;
+                const node = findPersonNode(originalRoots, currentDetailsPersonId);
+                if (!node) return;
+                showPersonDetailsEdit(node);
+            });
+        }
+
         // Node selection and bloodline highlighting logic
         treeRoot.addEventListener('click', (e) => {
             if (isFocusMode) return;
@@ -1732,57 +1391,12 @@
                 if (detailsStr) {
                     try {
                         const details = JSON.parse(detailsStr);
-                        const name = details.name || "UNKNOWN";
-                        const surname = (details.attributes && details.attributes.surname) ? details.attributes.surname : '';
-                        const gender = (details.attributes && details.attributes.gender) ? details.attributes.gender : '';
-                        let genderIcon = '';
-                        if (gender === 'Male') {
-                            genderIcon = '<i data-lucide="mars" class="w-3 h-3 text-sky-400 inline-block align-middle mr-1"></i>';
-                        } else if (gender === 'Female') {
-                            genderIcon = '<i data-lucide="venus" class="w-3 h-3 text-rose-400 inline-block align-middle mr-1"></i>';
-                        }
-
-                        let detailsHTML = '';
-                        if (details.photoUrl) {
-                            detailsHTML += `<img src="${escapeHTML(details.photoUrl)}" alt="Portrait" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-slate-100 shadow-sm shrink-0">`;
-                        } else {
-                            detailsHTML += `<div class="w-16 h-16 rounded-full bg-slate-50 mx-auto mb-2 flex items-center justify-center border-2 border-slate-100 shadow-sm shrink-0"><i data-lucide="user" class="w-8 h-8 text-slate-300"></i></div>`;
-                        }
-                        
-                        detailsHTML += `<div class="font-bold text-slate-900 text-sm ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</div>`;
-                        if (surname) {
-                            detailsHTML += `<div class="font-semibold text-slate-700 text-sm mb-1">${escapeHTML(surname)}</div>`;
-                        }
-                        detailsHTML += `<div class="text-[10px] text-slate-400 font-mono mb-2 border-b border-slate-100 pb-2">${genderIcon}ID: ${escapeHTML(details.id)}</div>`;
-                        
-                        const displayAttributes = Object.keys(details.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
-                        if (displayAttributes.length > 0) {
-                            for (const key of displayAttributes) {
-                                const value = details.attributes[key];
-                                if (key === 'note') {
-                                    detailsHTML += `
-                                        <div class="bg-amber-50 px-2 py-1.5 rounded-md border border-amber-100">
-                                            <div class="font-semibold text-slate-800 text-[10px] uppercase mb-0.5">${escapeHTML(key)}</div>
-                                            <div class="whitespace-normal break-words text-slate-800">${escapeHTML(value)}</div>
-                                        </div>`;
-                                } else {
-                                    detailsHTML += `
-                                        <div class="bg-slate-50 px-2 py-1.5 rounded-md border border-slate-100">
-                                            <div class="font-semibold text-slate-700 text-[10px] uppercase mb-0.5">${escapeHTML(key)}</div>
-                                            <div class="whitespace-normal break-words text-slate-800">${escapeHTML(value)}</div>
-                                        </div>`;
-                                }
-                            }
-                        }
-                        personDetailsContent.innerHTML = detailsHTML;
-                        personDetailsPanel.classList.remove('hidden');
-                        personDetailsPanel.classList.add('flex');
-                        lucide.createIcons();
+                        showPersonDetailsView(details);
                     } catch (err) {
                         console.error("Failed to parse person details", err);
                     }
                 }
-                
+
                 // Pre-compute child map for O(1) descendant lookups
                 const childMap = {};
                 document.querySelectorAll('.tree-node-card[data-parent-ids]').forEach(el => {
