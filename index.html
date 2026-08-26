@@ -605,6 +605,12 @@
             // inline spouse, so its right edge is CARD_WIDTH further per spouse —
             // not centered on ownX the way a plain width/2 split would assume.
             const rowRightExtent = CARD_WIDTH + inlineSpouses.length * (CARD_WIDTH + INLINE_SPOUSE_GAP);
+            // Children should hang centered under the whole marriage (this
+            // person's card plus any inline spouses), not just this person's own
+            // card — otherwise a couple's descendants visibly skew toward
+            // whichever parent happens to be "person" vs "spouse" in the data.
+            // This is the offset from ownX to the row's true center.
+            const rowCenterOffset = rowRightExtent / 2 - CARD_WIDTH / 2;
 
             let ownX;
             const contour = new Map();
@@ -612,9 +618,11 @@
                 const firstAnchor = packed.offsets[0] + childUnits[0].anchorX;
                 const lastAnchor = packed.offsets[packed.offsets.length - 1] + childUnits[childUnits.length - 1].anchorX;
                 const midpoint = (firstAnchor + lastAnchor) / 2;
-                // Don't let the person's own card poke past the left edge of the frame.
-                const frameShift = Math.max(0, CARD_WIDTH / 2 - midpoint);
-                ownX = midpoint + frameShift;
+                const desiredOwnX = midpoint - rowCenterOffset;
+                // Don't let the person's own card (or, if shifted left for the
+                // centering above, the row) poke past the left edge of the frame.
+                const frameShift = Math.max(0, CARD_WIDTH / 2 - desiredOwnX);
+                ownX = desiredOwnX + frameShift;
                 mergeContourInto(contour, packed.contour, frameShift);
                 childUnits.forEach((u, i) => { u.finalOffset = packed.offsets[i] + frameShift; });
             } else {
@@ -761,16 +769,33 @@
             treeRoot.style.height = totalHeight + 'px';
         }
 
-        // Resolves after the browser has painted at least one frame. Tailwind's
-        // CDN build (loaded via <script src="cdn.tailwindcss.com">) applies
-        // utility-class CSS asynchronously — a MutationObserver reacts to DOM
-        // changes and injects the matching rules — so cards inserted via
-        // innerHTML report the wrong (unstyled) offsetHeight if measured
-        // synchronously right after insertion. MutationObserver callbacks run as
-        // microtasks, which always flush before the next animation frame, so one
-        // rAF is enough to guarantee styles are applied before we measure.
-        function nextFrame() {
-            return new Promise(resolve => requestAnimationFrame(() => resolve()));
+        // Resolves once Tailwind has actually applied its utility-class CSS to
+        // freshly-inserted cards. Tailwind's CDN build (<script src=
+        // "cdn.tailwindcss.com">) injects utility-class rules asynchronously — a
+        // MutationObserver reacts to this innerHTML swap — so cards can report
+        // the wrong (unstyled) size/position if measured too soon. How long that
+        // takes varies by browser and by how many new elements just landed (535
+        // cards at once): one animation frame is enough in some browsers but not
+        // reliably in others (confirmed: Safari needed more than the single rAF
+        // this used to wait), so poll actual computed style instead of guessing
+        // a fixed frame count — wait until a known utility class's effect
+        // (w-[200px]) is actually visible on a real card, with a generous cap so
+        // a genuine failure doesn't hang forever.
+        function waitForCardStyles() {
+            return new Promise(resolve => {
+                let attempts = 0;
+                function check() {
+                    const card = treeRoot.querySelector('.tree-node-card');
+                    attempts++;
+                    const expectedWidth = CARD_WIDTH * currentZoom;
+                    if (!card || Math.abs(card.getBoundingClientRect().width - expectedWidth) < 1 || attempts > 120) {
+                        resolve();
+                    } else {
+                        requestAnimationFrame(check);
+                    }
+                }
+                requestAnimationFrame(check);
+            });
         }
 
         // Re-attached on every render since it needs to observe whatever cards
@@ -810,11 +835,12 @@
 
             treeRoot.style.width = totalWidth + 'px';
 
-            // Wait for Tailwind to finish styling the new cards (see nextFrame's
-            // comment) before measuring heights — otherwise row heights, Y
-            // positions, and every connector line get computed against
-            // temporarily-unstyled (wrong) card sizes and never get corrected.
-            await nextFrame();
+            // Wait for Tailwind to finish styling the new cards (see
+            // waitForCardStyles's comment) before measuring heights — otherwise
+            // row heights, Y positions, and every connector line get computed
+            // against temporarily-unstyled (wrong) card sizes and never get
+            // corrected.
+            await waitForCardStyles();
 
             remeasureY();
             drawCrossTreeLinks();
@@ -930,53 +956,81 @@
                     });
                 }
 
-                // Parent-child descent line(s) — every recorded parent for this
-                // person, sharing one horizontal junction Y so multiple parents
-                // (or several siblings independently computing the same junction)
-                // read as one connected line.
+                // Parent-child descent line(s). When a child has exactly two
+                // recorded parents and they're each other's spouse, treat the
+                // couple as a single attachment point (their marriage line's
+                // midpoint) instead of branching separately from each parent —
+                // so the connector looks like one clean trunk fanning out to
+                // however many children share it, the same as it would for an
+                // only child, instead of a busier crossed pattern from two
+                // independent parent branches landing on the same children.
                 const parentIds = card.getAttribute('data-parent-ids');
                 if (parentIds) {
-                    const parents = parentIds.split(',').filter(Boolean)
+                    const parentCards = parentIds.split(',').filter(Boolean)
                         .map(pId => nodeElements[pId]).filter(Boolean);
 
-                    if (parents.length > 0) {
-                        let maxBottomY = 0;
-                        let lineColor = '#94a3b8';
-                        let anyParentGlowing = false;
-                        const validParents = [];
-
-                        parents.forEach(pCard => {
+                    let attachPoints = [];
+                    if (parentCards.length === 2) {
+                        const [pA, pB] = parentCards;
+                        const aId = pA.getAttribute('data-id');
+                        const bId = pB.getAttribute('data-id');
+                        const aSpouseIds = (pA.getAttribute('data-spouse-ids') || '').split(',');
+                        const rA = nodeRects[aId];
+                        const rB = nodeRects[bId];
+                        if (aSpouseIds.includes(bId) && rA && rB && rA.width > 0 && rB.width > 0) {
+                            const cA = getCenter(rA);
+                            const cB = getCenter(rB);
+                            attachPoints.push({
+                                x: (cA.x + cB.x) / 2,
+                                // Where the drawn line actually starts: the
+                                // marriage line's own midpoint, not below the
+                                // cards — otherwise the couple's X (which falls
+                                // in the gap between their two cards) has nothing
+                                // drawn between the marriage line and the trunk,
+                                // leaving them visually disconnected even though
+                                // they share an X.
+                                startY: (cA.y + cB.y) / 2,
+                                // Where the row "ends" for the purpose of
+                                // centering the shared horizontal junction bar
+                                // below — the actual bottom of the taller card,
+                                // not the marriage line, so the bar sits centered
+                                // in the real gap between the parent and child
+                                // rows instead of hugging just under the parents.
+                                rowBottomY: (Math.max(rA.bottom, rB.bottom) - treeRect.top) / currentZoom,
+                                color: personRootColor.get(Number(aId)) || personRootColor.get(Number(bId)) || '#94a3b8',
+                                glowing: isGlowCard(pA) && isGlowCard(pB),
+                            });
+                        }
+                    }
+                    if (attachPoints.length === 0) {
+                        parentCards.forEach(pCard => {
                             const pId = pCard.getAttribute('data-id');
                             const pRect = nodeRects[pId];
                             if (!pRect || pRect.width === 0 || pRect.height === 0) return;
-
-                            validParents.push(pCard);
                             const bottomY = (pRect.bottom - treeRect.top) / currentZoom;
-                            if (bottomY > maxBottomY) maxBottomY = bottomY;
-
-                            if (lineColor === '#94a3b8') {
-                                const c = personRootColor.get(Number(pId));
-                                if (c) lineColor = c;
-                            }
-                            if (isGlowCard(pCard)) anyParentGlowing = true;
-                        });
-
-                        if (validParents.length > 0) {
-                            const myTopY = (cardRect.top - treeRect.top) / currentZoom;
-                            const sharedMidY = (maxBottomY + myTopY) / 2;
-
-                            const childIsGlowing = card.classList.contains('highlighted') || card.classList.contains('highlighted-gen');
-                            const isGlowingPath = anyParentGlowing && childIsGlowing;
-
-                            validParents.forEach(pCard => {
-                                const pId = pCard.getAttribute('data-id');
-                                const pRect = nodeRects[pId];
-                                const pCenter = getCenter(pRect);
-                                const bottomY = (pRect.bottom - treeRect.top) / currentZoom;
-                                const isThisParentGlowing = isGlowCard(pCard);
-                                drawCrossLink(svg, pCenter.x, bottomY, center.x, myTopY, 'parent-child', lineColor, sharedMidY, isGlowingPath && isThisParentGlowing);
+                            attachPoints.push({
+                                x: getCenter(pRect).x,
+                                startY: bottomY,
+                                rowBottomY: bottomY,
+                                color: personRootColor.get(Number(pId)) || '#94a3b8',
+                                glowing: isGlowCard(pCard),
                             });
-                        }
+                        });
+                    }
+
+                    if (attachPoints.length > 0) {
+                        const maxRowBottomY = Math.max(...attachPoints.map(a => a.rowBottomY));
+                        const myTopY = (cardRect.top - treeRect.top) / currentZoom;
+                        const sharedMidY = (maxRowBottomY + myTopY) / 2;
+
+                        const lineColor = attachPoints[0].color;
+                        const anyParentGlowing = attachPoints.some(a => a.glowing);
+                        const childIsGlowing = card.classList.contains('highlighted') || card.classList.contains('highlighted-gen');
+                        const isGlowingPath = anyParentGlowing && childIsGlowing;
+
+                        attachPoints.forEach(a => {
+                            drawCrossLink(svg, a.x, a.startY, center.x, myTopY, 'parent-child', lineColor, sharedMidY, isGlowingPath && a.glowing);
+                        });
                     }
                 }
             });
