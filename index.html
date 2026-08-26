@@ -103,16 +103,13 @@
             <button id="btn-zoom-reset" class="p-2 hover:bg-slate-100 text-slate-600 border-x border-slate-200 transition-colors cursor-pointer flex-1 flex justify-center" title="Reset Zoom">
                 <i data-lucide="maximize" class="w-5 h-5"></i>
             </button>
-            <button id="btn-zoom-in" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom In">
+            <button id="btn-zoom-in" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom In">
                 <i data-lucide="zoom-in" class="w-5 h-5"></i>
-            </button>
-            <button id="btn-focus" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex-1 flex justify-center" title="Focus">
-                <i data-lucide="focus" class="w-5 h-5"></i>
             </button>
         </div>
 
         <!-- Search -->
-        <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden items-center justify-center mb-6 shrink-0">
+        <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden items-center justify-center mb-4 shrink-0">
             <input type="text" id="search-input" placeholder="Ara..." class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
             <button id="btn-search-clear" class="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer hidden justify-center shrink-0" title="Temizle">
                 <i data-lucide="x" class="w-4 h-4"></i>
@@ -125,18 +122,30 @@
             </button>
         </div>
 
+        <!-- Add Person -->
+        <button id="btn-add-person" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-6 shrink-0 p-2 text-sm font-medium" title="Kişi Ekle">
+            <i data-lucide="user-plus" class="w-5 h-5"></i>
+            <span>Kişi Ekle</span>
+        </button>
+
         <!-- Person Details Panel -->
         <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 mb-4">
-            <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
+            <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 shrink-0">
                 <span>Kişi Detayları</span>
-                <div class="flex items-center gap-1.5">
-                    <button id="btn-edit-details" class="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Düzenle">
-                        <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
-                    </button>
-                    <button id="btn-close-details" class="p-1 -mr-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Kapat">
-                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                    </button>
-                </div>
+            </div>
+            <div class="flex items-center gap-1.5 mb-2 shrink-0">
+                <button id="btn-focus" class="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Focus">
+                    <i data-lucide="focus" class="w-3.5 h-3.5"></i>
+                </button>
+                <button id="btn-edit-details" class="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Düzenle">
+                    <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                </button>
+                <button id="btn-delete-details" class="p-1 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded transition-colors cursor-pointer" title="Sil">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+                <button id="btn-close-details" class="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Kapat">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
             </div>
             <div id="person-details-content" class="flex flex-col gap-2 text-xs text-slate-600">
                 <!-- Populated by JS -->
@@ -171,7 +180,7 @@
 
     <!-- Application Logic -->
     <script type="module">
-    import { getTree, updatePerson } from './js/api.js';
+    import { getTree, updatePerson, createPerson, deletePerson } from './js/api.js';
     import {
         CARD_WIDTH, ROW_GAP,
         buildHierarchy, computeTreeLayout, collectAllPersons, pruneForFocus, findPersonNode
@@ -216,6 +225,8 @@
         const personDetailsContent = document.getElementById('person-details-content');
         const btnCloseDetails = document.getElementById('btn-close-details');
         const btnEditDetails = document.getElementById('btn-edit-details');
+        const btnDeleteDetails = document.getElementById('btn-delete-details');
+        const btnAddPerson = document.getElementById('btn-add-person');
 
         const generationLegend = document.getElementById('generation-legend');
         const legendList = document.getElementById('legend-list');
@@ -1206,6 +1217,7 @@
             personDetailsPanel.classList.remove('hidden');
             personDetailsPanel.classList.add('flex');
             if (btnEditDetails) btnEditDetails.classList.remove('hidden');
+            if (btnDeleteDetails) btnDeleteDetails.classList.remove('hidden');
             lucide.createIcons();
         }
 
@@ -1306,6 +1318,7 @@
                 </div>`;
 
             if (btnEditDetails) btnEditDetails.classList.add('hidden');
+            if (btnDeleteDetails) btnDeleteDetails.classList.add('hidden');
 
             document.getElementById('edit-field-name').focus();
             document.getElementById('btn-cancel-edit-details').addEventListener('click', () => {
@@ -1398,6 +1411,216 @@
                 const node = findPersonNode(originalRoots, currentDetailsPersonId);
                 if (!node) return;
                 showPersonDetailsEdit(node);
+            });
+        }
+
+        // Hides the details panel entirely and clears any active highlight
+        // state, shared by the "cancel add" and "after delete" flows.
+        function closeDetailsPanel() {
+            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
+                el.classList.remove('highlighted', 'highlighted-gen', 'highlighted-spouse');
+                el.style.removeProperty('--highlight-color');
+                el.style.removeProperty('--highlight-shadow');
+            });
+            document.querySelectorAll('.glow-line, .glow-up, .glow-down, .glow-horizontal, .glow-horizontal-left, .glow-horizontal-right').forEach(el => {
+                el.classList.remove('glow-line', 'glow-up', 'glow-down', 'glow-horizontal', 'glow-horizontal-left', 'glow-horizontal-right');
+            });
+            document.querySelectorAll('.legend-item').forEach(el => {
+                el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
+            });
+            currentDetailsPersonId = null;
+            personDetailsPanel.classList.add('hidden');
+            personDetailsPanel.classList.remove('flex');
+            drawMinimap();
+            if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
+        }
+
+        // Re-fetches the tree from the server and re-renders it, preserving
+        // whatever highlight/focus state was active. Shared by the
+        // create/delete flows below (saveDetailsEdit has its own inline copy
+        // of this same sequence since it also needs to keep the panel open).
+        async function refreshTree() {
+            const { people } = await getTree();
+            originalRoots = buildHierarchy(people);
+            const highlightState = captureHighlightState();
+            if (isFocusMode) {
+                const visibleIds = new Set(highlightState.keys());
+                await renderTreeFromHierarchy(pruneForFocus(originalRoots, visibleIds));
+            } else {
+                await renderTreeFromHierarchy(originalRoots);
+            }
+            applyHighlightState(highlightState);
+            drawCrossTreeLinks();
+            drawMinimap();
+        }
+
+        // Renders the details panel in "create a new person" mode: same
+        // field set as the edit form, plus a spouse picker (the edit form
+        // has no equivalent, since editing an existing person's marriages
+        // isn't otherwise supported here).
+        function showPersonCreateForm() {
+            currentDetailsPersonId = null;
+
+            personDetailsContent.innerHTML = `
+                <div class="flex flex-col gap-2">
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ad</span>
+                        <input type="text" id="edit-field-name" value="" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Soyad</span>
+                        <input type="text" id="edit-field-surname" value="" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Cinsiyet</span>
+                        <select id="edit-field-gender" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            <option value="" selected>Bilinmiyor</option>
+                            <option value="Male">Erkek</option>
+                            <option value="Female">Kadın</option>
+                        </select>
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Doğum Tarihi</span>
+                        <input type="text" id="edit-field-birthdate" value="" placeholder="GG.AA.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Doğum Yeri</span>
+                        <input type="text" id="edit-field-birthplace" value="" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Not</span>
+                        <textarea id="edit-field-note" rows="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white resize-none"></textarea>
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 1</span>
+                        <select id="edit-field-parent1" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            ${buildPersonOptions(-1, null)}
+                        </select>
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 2</span>
+                        <select id="edit-field-parent2" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            ${buildPersonOptions(-1, null)}
+                        </select>
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Eş</span>
+                        <select id="edit-field-spouse" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            ${buildPersonOptions(-1, null)}
+                        </select>
+                    </label>
+                    <div id="edit-form-error" class="text-[11px] text-red-500 hidden"></div>
+                    <div class="flex gap-2 mt-1">
+                        <button id="btn-save-details" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Ekle</button>
+                        <button id="btn-cancel-edit-details" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">İptal</button>
+                    </div>
+                </div>`;
+
+            if (btnEditDetails) btnEditDetails.classList.add('hidden');
+            if (btnDeleteDetails) btnDeleteDetails.classList.add('hidden');
+
+            personDetailsPanel.classList.remove('hidden');
+            personDetailsPanel.classList.add('flex');
+
+            document.getElementById('edit-field-name').focus();
+            document.getElementById('btn-cancel-edit-details').addEventListener('click', () => {
+                closeDetailsPanel();
+            });
+            document.getElementById('btn-save-details').addEventListener('click', () => createNewPerson());
+        }
+
+        // Reads the create form, posts the new person to the server, then
+        // refreshes the tree and shows the freshly created person in view mode.
+        async function createNewPerson() {
+            const errEl = document.getElementById('edit-form-error');
+            const showFormError = (msg) => {
+                errEl.textContent = msg;
+                errEl.classList.remove('hidden');
+            };
+
+            const name = document.getElementById('edit-field-name').value.trim();
+            if (!name) {
+                showFormError('Ad boş olamaz.');
+                return;
+            }
+            const surname = document.getElementById('edit-field-surname').value.trim();
+            const genderStr = document.getElementById('edit-field-gender').value;
+            const birthdate = document.getElementById('edit-field-birthdate').value.trim();
+            const birthplace = document.getElementById('edit-field-birthplace').value.trim();
+            const note = document.getElementById('edit-field-note').value.trim();
+            const genderNum = genderStr === 'Male' ? 1 : genderStr === 'Female' ? 2 : 0;
+
+            const parent1Raw = document.getElementById('edit-field-parent1').value;
+            const parent2Raw = document.getElementById('edit-field-parent2').value;
+            const parent1Id = parent1Raw ? Number(parent1Raw) : null;
+            const parent2Id = parent2Raw ? Number(parent2Raw) : null;
+            if (parent1Id !== null && parent2Id !== null && parent1Id === parent2Id) {
+                showFormError('Ebeveyn 1 ve Ebeveyn 2 aynı kişi olamaz.');
+                return;
+            }
+            const parentIds = [parent1Id, parent2Id].filter(id => id !== null);
+
+            const spouseRaw = document.getElementById('edit-field-spouse').value;
+            const spouseIds = spouseRaw ? [Number(spouseRaw)] : [];
+
+            const saveBtn = document.getElementById('btn-save-details');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Ekleniyor...';
+
+            try {
+                const created = await createPerson({
+                    name,
+                    surname: surname || null,
+                    gender: genderNum,
+                    birthdate: birthdate || null,
+                    birthplace: birthplace || null,
+                    note: note || null,
+                    parentIds,
+                    spouseIds,
+                });
+
+                await refreshTree();
+
+                const newNode = findPersonNode(originalRoots, created.id);
+                if (newNode) {
+                    showPersonDetailsView({ name: newNode.name, id: newNode.id, photoUrl: newNode.photoUrl, attributes: newNode.attributes });
+                } else {
+                    closeDetailsPanel();
+                }
+            } catch (err) {
+                showFormError('Ekleme başarısız: ' + err.message);
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Ekle';
+            }
+        }
+
+        if (btnAddPerson) {
+            btnAddPerson.addEventListener('click', () => {
+                showPersonCreateForm();
+            });
+        }
+
+        if (btnDeleteDetails) {
+            btnDeleteDetails.addEventListener('click', async () => {
+                if (currentDetailsPersonId === null) return;
+                const node = findPersonNode(originalRoots, currentDetailsPersonId);
+                const label = node ? `${node.name || ''} ${(node.attributes && node.attributes.surname) || ''}`.trim() : `#${currentDetailsPersonId}`;
+                if (!window.confirm(`"${label}" kişisini silmek istediğinize emin misiniz? Bu işlem, bu kişiyi ebeveyn/eş olarak referans alan bağlantıları da kaldırır.`)) {
+                    return;
+                }
+
+                const idToDelete = currentDetailsPersonId;
+                btnDeleteDetails.disabled = true;
+                try {
+                    await deletePerson(idToDelete);
+                    await refreshTree();
+                    closeDetailsPanel();
+                } catch (err) {
+                    errorOverlay.classList.remove('hidden');
+                    errorText.textContent = 'Silme başarısız: ' + err.message;
+                } finally {
+                    btnDeleteDetails.disabled = false;
+                }
             });
         }
 

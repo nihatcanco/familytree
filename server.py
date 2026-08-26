@@ -74,6 +74,15 @@ def _ancestor_ids(conn, person_id, seen=None):
     return seen
 
 
+def _next_id(conn, table):
+    # These tables declare "id INT AUTO_INCREMENT" (MySQL-style DDL), which
+    # SQLite does NOT treat as a rowid-alias (only the exact type "INTEGER"
+    # gets that treatment) -- so ids are never assigned automatically and
+    # must be computed explicitly on every insert.
+    row = conn.execute(f"SELECT MAX(id) AS max_id FROM {table}").fetchone()
+    return (row["max_id"] or 0) + 1
+
+
 def _update_parents(conn, person_id, parent_ids):
     if not isinstance(parent_ids, list) or len(parent_ids) > 2:
         raise ValueError("Geçersiz ebeveyn listesi.")
@@ -114,9 +123,115 @@ def _update_parents(conn, person_id, parent_ids):
         )
     else:
         conn.execute(
-            "INSERT INTO Parents (childId, parent1Id, parent2Id) VALUES (?, ?, ?)",
-            (person_id, parent1Id, parent2Id),
+            "INSERT INTO Parents (id, childId, parent1Id, parent2Id) VALUES (?, ?, ?, ?)",
+            (_next_id(conn, "Parents"), person_id, parent1Id, parent2Id),
         )
+
+
+def _insert_spouses(conn, person_id, spouse_ids):
+    if spouse_ids is None:
+        return
+    if not isinstance(spouse_ids, list):
+        raise ValueError("Geçersiz eş listesi.")
+
+    ids = []
+    for sid in spouse_ids:
+        if sid is None:
+            continue
+        try:
+            sid = int(sid)
+        except (TypeError, ValueError):
+            raise ValueError("Geçersiz eş kimliği.")
+        if sid == person_id:
+            raise ValueError("Bir kişi kendi eşi olamaz.")
+        if sid not in ids:
+            ids.append(sid)
+
+    for sid in ids:
+        exists = conn.execute("SELECT id FROM People WHERE id = ?", (sid,)).fetchone()
+        if exists is None:
+            raise ValueError(f"Eş olarak seçilen kişi ({sid}) bulunamadı.")
+        already = conn.execute(
+            "SELECT id FROM Spouses WHERE (spouse1Id = ? AND spouse2Id = ?) OR (spouse1Id = ? AND spouse2Id = ?)",
+            (person_id, sid, sid, person_id),
+        ).fetchone()
+        if already is None:
+            conn.execute(
+                "INSERT INTO Spouses (id, spouse1Id, spouse2Id) VALUES (?, ?, ?)",
+                (_next_id(conn, "Spouses"), person_id, sid),
+            )
+
+
+def create_person(fields):
+    updates = {k: v for k, v in fields.items() if k in EDITABLE_FIELDS}
+    name = str(updates.get("name") or "").strip()
+    if not name:
+        raise ValueError("Ad boş olamaz.")
+    updates["name"] = name
+    if "gender" in updates and updates["gender"] not in (0, 1, 2):
+        raise ValueError("Geçersiz cinsiyet değeri.")
+
+    parent_ids = fields.get("parentIds")
+    spouse_ids = fields.get("spouseIds")
+
+    conn = get_connection()
+    try:
+        new_id = _next_id(conn, "People")
+
+        columns = ["id"] + list(updates.keys())
+        placeholders = ", ".join("?" for _ in columns)
+        conn.execute(
+            f"INSERT INTO People ({', '.join(columns)}) VALUES ({placeholders})",
+            (new_id, *updates.values()),
+        )
+
+        if parent_ids:
+            _update_parents(conn, new_id, parent_ids)
+        _insert_spouses(conn, new_id, spouse_ids)
+
+        conn.commit()
+
+        created = dict(conn.execute("SELECT * FROM People WHERE id = ?", (new_id,)).fetchone())
+        parents_row = conn.execute("SELECT parent1Id, parent2Id FROM Parents WHERE childId = ?", (new_id,)).fetchone()
+        created["parentIds"] = [pid for pid in (parents_row["parent1Id"], parents_row["parent2Id"]) if pid is not None] if parents_row else []
+        spouse_rows = conn.execute("SELECT spouse1Id, spouse2Id FROM Spouses WHERE spouse1Id = ? OR spouse2Id = ?", (new_id, new_id)).fetchall()
+        created["spouseIds"] = [(row["spouse2Id"] if row["spouse1Id"] == new_id else row["spouse1Id"]) for row in spouse_rows]
+        return created
+    finally:
+        conn.close()
+
+
+def delete_person(person_id):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT id FROM People WHERE id = ?", (person_id,)).fetchone()
+        if row is None:
+            raise LookupError("Kişi bulunamadı.")
+
+        # childId is unique per Parents row (one row per child), so key off
+        # it rather than Parents.id -- see _next_id's note on why id can't
+        # be trusted for rows inserted before this quirk was worked around.
+        parent_rows = conn.execute(
+            "SELECT childId, parent1Id, parent2Id FROM Parents WHERE parent1Id = ? OR parent2Id = ?",
+            (person_id, person_id),
+        ).fetchall()
+        for prow in parent_rows:
+            if prow["parent1Id"] == person_id and prow["parent2Id"] is not None:
+                conn.execute(
+                    "UPDATE Parents SET parent1Id = ?, parent2Id = NULL WHERE childId = ?",
+                    (prow["parent2Id"], prow["childId"]),
+                )
+            elif prow["parent1Id"] == person_id:
+                conn.execute("DELETE FROM Parents WHERE childId = ?", (prow["childId"],))
+            else:
+                conn.execute("UPDATE Parents SET parent2Id = NULL WHERE childId = ?", (prow["childId"],))
+
+        conn.execute("DELETE FROM Parents WHERE childId = ?", (person_id,))
+        conn.execute("DELETE FROM Spouses WHERE spouse1Id = ? OR spouse2Id = ?", (person_id, person_id))
+        conn.execute("DELETE FROM People WHERE id = ?", (person_id,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def update_person(person_id, fields):
@@ -204,6 +319,38 @@ class Handler(BaseHTTPRequestHandler):
             fields = json.loads(self.rfile.read(length) or b"{}")
             updated = update_person(person_id, fields)
             self._send_json(200, updated)
+        except LookupError as exc:
+            self._send_json(404, {"error": str(exc)})
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/api/people":
+            self._send_json(404, {"error": "Not found"})
+            return
+
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            fields = json.loads(self.rfile.read(length) or b"{}")
+            created = create_person(fields)
+            self._send_json(201, created)
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def do_DELETE(self):
+        match = re.fullmatch(r"/api/people/(\d+)", urlparse(self.path).path)
+        if not match:
+            self._send_json(404, {"error": "Not found"})
+            return
+
+        person_id = int(match.group(1))
+        try:
+            delete_person(person_id)
+            self._send_json(200, {"success": True})
         except LookupError as exc:
             self._send_json(404, {"error": str(exc)})
         except (ValueError, json.JSONDecodeError) as exc:
