@@ -946,29 +946,102 @@
 
 
         // --- Cross Tree Linking Logic ---
-        function drawCrossLink(svg, x1, y1, x2, y2, type, color = '#94a3b8', sharedMidY = null, isGlowing = false) {
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            
-            let d = '';
-            
+        // Lines are collected first (as {x1,y1,x2,y2,type,...} defs) rather than
+        // drawn immediately, so that once every connector for this render pass is
+        // known, crossing horizontal/vertical segments from *different* lines can
+        // get a small "bump" (like a wire hop) at the point they intercept —
+        // otherwise two unrelated lines that happen to overlap on screen read as
+        // if they connect. Segments from the SAME line meeting at their own
+        // corners are not crossings and never get bumped.
+        function queueCrossLink(pending, x1, y1, x2, y2, type, color = '#94a3b8', sharedMidY = null, isGlowing = false) {
+            pending.push({ x1, y1, x2, y2, type, color, sharedMidY, isGlowing });
+        }
+
+        function pointsForLineDef(line) {
+            const { x1, y1, x2, y2, type, sharedMidY } = line;
             if (type === 'parent-child') {
-                const midY = sharedMidY !== null ? sharedMidY : (y1 + y2) / 2;
-                d = `M ${x1},${y1} L ${x1},${midY} L ${x2},${midY} L ${x2},${y2}`;
-            } else {
-                const midX = (x1 + x2) / 2;
-                d = `M ${x1},${y1} L ${midX},${y1} L ${midX},${y2} L ${x2},${y2}`;
+                const midY = sharedMidY !== null && sharedMidY !== undefined ? sharedMidY : (y1 + y2) / 2;
+                return [[x1, y1], [x1, midY], [x2, midY], [x2, y2]];
             }
-            
-            path.setAttribute('d', d);
-            path.setAttribute('stroke', color);
-            path.setAttribute('stroke-width', '2');
-            path.setAttribute('fill', 'none');
-            
-            if (isGlowing) {
-                path.classList.add('svg-glow-line');
+            const midX = (x1 + x2) / 2;
+            return [[x1, y1], [midX, y1], [midX, y2], [x2, y2]];
+        }
+
+        function segmentsFromPoints(points) {
+            const segs = [];
+            for (let i = 0; i < points.length - 1; i++) {
+                const [px1, py1] = points[i];
+                const [px2, py2] = points[i + 1];
+                if (px1 === px2 && py1 === py2) continue;
+                segs.push({ x1: px1, y1: py1, x2: px2, y2: py2, orientation: py1 === py2 ? 'h' : 'v' });
             }
-            
-            svg.appendChild(path);
+            return segs;
+        }
+
+        const LINE_BUMP_RADIUS = 7;
+        const LINE_BUMP_EPS = 3; // ignore near-endpoint touches — those are shared corners, not crossings
+
+        function renderQueuedLinks(svg, lines) {
+            const lineSegs = lines.map(line => segmentsFromPoints(pointsForLineDef(line)));
+            const crossings = lineSegs.map(segs => segs.map(() => []));
+
+            for (let i = 0; i < lineSegs.length; i++) {
+                for (let si = 0; si < lineSegs[i].length; si++) {
+                    const h = lineSegs[i][si];
+                    if (h.orientation !== 'h') continue;
+                    const hx1 = Math.min(h.x1, h.x2), hx2 = Math.max(h.x1, h.x2);
+                    if (hx2 - hx1 < LINE_BUMP_EPS * 2) continue;
+                    for (let j = 0; j < lineSegs.length; j++) {
+                        if (j === i) continue;
+                        for (const v of lineSegs[j]) {
+                            if (v.orientation !== 'v') continue;
+                            const vy1 = Math.min(v.y1, v.y2), vy2 = Math.max(v.y1, v.y2);
+                            if (vy2 - vy1 < LINE_BUMP_EPS * 2) continue;
+                            const vx = v.x1;
+                            const hy = h.y1;
+                            if (vx > hx1 + LINE_BUMP_EPS && vx < hx2 - LINE_BUMP_EPS &&
+                                hy > vy1 + LINE_BUMP_EPS && hy < vy2 - LINE_BUMP_EPS) {
+                                crossings[i][si].push(vx);
+                            }
+                        }
+                    }
+                }
+            }
+
+            lines.forEach((line, li) => {
+                const segs = lineSegs[li];
+                const segCrossings = crossings[li];
+                let d = '';
+                segs.forEach((seg, si) => {
+                    if (si === 0) d += `M ${seg.x1},${seg.y1} `;
+                    if (seg.orientation === 'h' && segCrossings[si].length > 0) {
+                        const leftToRight = seg.x2 > seg.x1;
+                        const xs = [...new Set(segCrossings[si])].sort((a, b) => leftToRight ? a - b : b - a);
+                        const y = seg.y1;
+                        let curX = seg.x1;
+                        xs.forEach(cx => {
+                            const r = Math.min(LINE_BUMP_RADIUS, Math.abs(cx - curX) - 1, Math.abs(seg.x2 - cx) - 1);
+                            if (r < 2) return;
+                            const sign = leftToRight ? 1 : -1;
+                            const enterX = cx - sign * r;
+                            const exitX = cx + sign * r;
+                            d += `L ${enterX},${y} A ${r},${r} 0 0,${leftToRight ? 1 : 0} ${exitX},${y} `;
+                            curX = exitX;
+                        });
+                        d += `L ${seg.x2},${seg.y2} `;
+                    } else {
+                        d += `L ${seg.x2},${seg.y2} `;
+                    }
+                });
+
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', d.trim());
+                path.setAttribute('stroke', line.color);
+                path.setAttribute('stroke-width', '2');
+                path.setAttribute('fill', 'none');
+                if (line.isGlowing) path.classList.add('svg-glow-line');
+                svg.appendChild(path);
+            });
         }
 
         // Draws every connector line (parent-child descent + spouse marriage
@@ -996,6 +1069,7 @@
             });
 
             const drawnSpouseLines = new Set();
+            const pendingLines = [];
 
             const getCenter = (rect) => ({
                 x: (rect.left - treeRect.left) / currentZoom + rect.width / 2 / currentZoom,
@@ -1045,7 +1119,7 @@
 
                         const lineColor = personRootColor.get(Number(id)) || '#94a3b8';
                         const isGlowing = isGlowCard(card) && isGlowCard(spouseCard);
-                        drawCrossLink(svg, center.x, myLineY, sCenter.x, spouseLineY, 'spouse', lineColor, null, isGlowing);
+                        queueCrossLink(pendingLines, center.x, myLineY, sCenter.x, spouseLineY, 'spouse', lineColor, null, isGlowing);
                     });
                 }
 
@@ -1126,11 +1200,13 @@
                         const isGlowingPath = anyParentGlowing && childIsGlowing;
 
                         attachPoints.forEach(a => {
-                            drawCrossLink(svg, a.x, a.startY, center.x, myTopY, 'parent-child', lineColor, sharedMidY, isGlowingPath && a.glowing);
+                            queueCrossLink(pendingLines, a.x, a.startY, center.x, myTopY, 'parent-child', lineColor, sharedMidY, isGlowingPath && a.glowing);
                         });
                     }
                 }
             });
+
+            renderQueuedLinks(svg, pendingLines);
         }
 
         // Fetch Data and Render Tree Logic
