@@ -66,6 +66,7 @@ export function buildHierarchy(flatData) {
         if (row.surname) node.attributes.surname = row.surname;
         if (row.birthplace) node.attributes.birthplace = row.birthplace;
         if (row.birthdate) node.attributes.birthdate = row.birthdate;
+        if (row.dateofdeath) node.attributes.dateofdeath = row.dateofdeath;
         if (row.gender === 1) node.attributes.gender = 'Male';
         if (row.gender === 2) node.attributes.gender = 'Female';
         if (row.note) node.attributes.note = row.note;
@@ -83,90 +84,71 @@ export function buildHierarchy(flatData) {
         });
     });
 
-    // Global Jenerasyon Senkronizasyonu (Tüm farklı kökleri ve çapraz bağları hizalar)
-    nodeMap.forEach((startNode) => {
-        if (startNode._generation !== null) return; // Zaten işlenmişse atla
-
-        startNode._generation = 0;
-        const queue = [startNode];
-        const componentNodes = [startNode];
-
-        while (queue.length > 0) {
-            const current = queue.shift();
-
-            // Çocuklara jenerasyon (n + 1) ata
-            const children = childMap.get(Number(current.id)) || [];
-            children.forEach(child => {
-                if (child._generation === null) {
-                    child._generation = current._generation + 1;
-                    queue.push(child);
-                    componentNodes.push(child);
-                }
-            });
-
-            // Ebeveynlere jenerasyon (n - 1) ata
-            current._parentIds.forEach(pid => {
-                const parent = nodeMap.get(Number(pid));
-                if (parent && parent._generation === null) {
-                    parent._generation = current._generation - 1;
-                    queue.push(parent);
-                    componentNodes.push(parent);
-                }
-            });
-
-            // Eşlere aynı jenerasyonu ata
-            current._spouseIds.forEach(sid => {
-                const spouse = nodeMap.get(Number(sid));
-                if (spouse && spouse._generation === null) {
-                    spouse._generation = current._generation;
-                    queue.push(spouse);
-                    componentNodes.push(spouse);
-                }
-            });
+    // Kan Bağı Jenerasyon Hesabı (Kahn topolojik sıralaması, sadece ebeveyn/
+    // çocuk kenarları — evlilik bağları KATILMAZ). Bu yoğun akraba evliliği
+    // olan bir soyağacında şart: biri evlilik yoluyla uzak bir kuzeninin
+    // ailesine bağlıysa (örn. birinin eşi aslında ta yukarıdan bir kuzen),
+    // eski kod bu evlilik kenarını da "aynı jenerasyon" kısıtı olarak BFS'e
+    // katıyordu — BFS hangi yoldan önce ulaşırsa onu kabul ettiğinden, bir
+    // kişinin jenerasyonu kendi doğrudan ebeveyninden değil, çok daha uzak
+    // (ve genelde daha derin) bir akraba zincirinden sızabiliyordu. Sonuç:
+    // doğrudan baba-oğul çiftleri ekranda 2+ satır arayla, sanki dede-torun
+    // gibi görünüyordu. Çözüm: her kişinin jenerasyonunu SADECE kendi kan
+    // bağı zincirindeki en uzun yoldan hesapla (iki ebeveyni varsa ikisinin
+    // de en az bir fazlası); evlilik hizalaması ayrı bir adımda, sadece
+    // kaydı ebeveyni OLMAYAN kişiler için uygulanır (aşağıdaki "Eş
+    // Jenerasyon Sabitleme").
+    const remainingParents = new Map();
+    const queue = [];
+    nodeMap.forEach(node => {
+        const count = node._parentIds.filter(pid => nodeMap.has(Number(pid))).length;
+        remainingParents.set(node.id, count);
+        if (count === 0) {
+            node._generation = 1;
+            queue.push(node);
         }
-
-        // En düşük jenerasyonun 1 olmasını sağlayarak değerleri normalize et
-        const minGen = Math.min(...componentNodes.map(n => n._generation));
-        const offset = 1 - minGen;
-        componentNodes.forEach(n => n._generation += offset);
     });
-
-    // Eş Jenerasyon Sabitleme (Spousal Grounding)
-    // Kayıtlı ebeveyni OLMAYAN bir kişinin jenerasyonu, aslında hiçbir soy
-    // bilgisine dayanmaz — yukarıdaki BFS'in hangi sırayla ilerlediğine
-    // bağlı rastgele bir değerdir. Böyle "sabitlenmemiş" biri, kayıtlı
-    // ebeveyni OLAN (dolayısıyla gerçek bir soy derinliğine sahip) eşinin
-    // jenerasyonuna çekilir. Bu, çocukların jenerasyonunu hesaplayan
-    // aşağıdaki geçişten ÖNCE yapılmalı ki çocuklar da doğru (düzeltilmiş)
-    // ebeveyn değerini kullansın.
-    let spouseChanged = true;
-    let spouseIterations = 0;
-    const maxSpouseIterations = nodeMap.size + 5;
-    while (spouseChanged && spouseIterations < maxSpouseIterations) {
-        spouseChanged = false;
-        spouseIterations++;
-        nodeMap.forEach(node => {
-            const hasOwnParents = node._parentIds.some(pid => nodeMap.has(Number(pid)));
-            if (hasOwnParents) return; // has real recorded ancestry — don't override it
-            node._spouseIds.forEach(sid => {
-                const spouse = nodeMap.get(Number(sid));
-                if (spouse && spouse._generation !== node._generation) {
-                    node._generation = spouse._generation;
-                    spouseChanged = true;
-                }
-            });
+    while (queue.length > 0) {
+        const current = queue.shift();
+        const children = childMap.get(Number(current.id)) || [];
+        children.forEach(child => {
+            const desired = current._generation + 1;
+            if (child._generation === null || desired > child._generation) {
+                child._generation = desired;
+            }
+            const left = remainingParents.get(child.id) - 1;
+            remainingParents.set(child.id, left);
+            if (left === 0) queue.push(child);
         });
     }
+    // Savunma amaçlı: veri hatası yüzünden bir kısır döngü varsa (biri
+    // kendi atası gibi görünüyorsa) yukarıdaki kuyruk hiç boşalmayabilir;
+    // kalan atanmamış düğümleri 1 olarak işaretleyip devam et.
+    nodeMap.forEach(node => {
+        if (node._generation === null) node._generation = 1;
+    });
 
-    // Jenerasyon Tutarlılık Düzeltmesi (Relaxation Pass)
-    // Her çocuğun jenerasyonunun ebeveynlerinden en az 1 fazla olmasını
-    // garanti ederek Focus modundaki dikey hizalama bozukluklarını giderir.
-    let genChanged = true;
-    let genIterations = 0;
-    const maxGenIterations = nodeMap.size + 5;
-    while (genChanged && genIterations < maxGenIterations) {
-        genChanged = false;
-        genIterations++;
+    // Eş Jenerasyon Hizalama + Tutarlılık Düzeltmesi (birleşik relaxation)
+    // İki kural, tek bir sabit noktaya (fixpoint) ulaşana kadar birlikte
+    // uygulanır:
+    //   (a) Her çocuğun jenerasyonu, kaydı ebeveyninden en az 1 fazla olmalı.
+    //       Bu KOŞULSUZ uygulanır — kan bağı (a) kuralı, (b)'den her zaman
+    //       önceliklidir: iki ebeveyn-çocuk çifti asla aynı ya da ters sırada
+    //       görünmemeli.
+    //   (b) Kaydı ebeveyni OLMAYAN biri (saf "dışarıdan gelin/damat", kendi
+    //       soyu bilinmiyor), eşinin jenerasyonuna çekilir. Kaydı ebeveyni
+    //       OLAN biri asla bu şekilde çekilmez — aksi halde eşinin çok daha
+    //       derin bir soydan gelmesi (örn. uzak kuzen evliliği), bu kişinin
+    //       KENDİ ebeveyniyle arasında satır boşluğu açar (Hayrettin-Can
+    //       vakası). Sonuç: nadir "kuşak atlayan" evliliklerde eşler farklı
+    //       satırda görünebilir — bu, gerçek bir kuşak farkını yansıtır,
+    //       hata değildir.
+    let changed = true;
+    let iterations = 0;
+    const maxIterations = nodeMap.size + 5;
+    while (changed && iterations < maxIterations) {
+        changed = false;
+        iterations++;
         nodeMap.forEach(node => {
             node._parentIds.forEach(pid => {
                 const parent = nodeMap.get(Number(pid));
@@ -174,10 +156,20 @@ export function buildHierarchy(flatData) {
                     const desired = parent._generation + 1;
                     if (node._generation < desired) {
                         node._generation = desired;
-                        genChanged = true;
+                        changed = true;
                     }
                 }
             });
+            const hasOwnParents = node._parentIds.some(pid => nodeMap.has(Number(pid)));
+            if (!hasOwnParents) {
+                node._spouseIds.forEach(sid => {
+                    const spouse = nodeMap.get(Number(sid));
+                    if (spouse && spouse._generation !== node._generation) {
+                        node._generation = spouse._generation;
+                        changed = true;
+                    }
+                });
+            }
         });
     }
 

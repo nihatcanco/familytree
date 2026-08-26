@@ -1329,6 +1329,10 @@
                         <input type="text" id="edit-field-birthplace" value="${escapeHTML(attrs.birthplace || '')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ölüm Tarihi</span>
+                        <input type="text" id="edit-field-dateofdeath" value="${escapeHTML(attrs.dateofdeath || '')}" placeholder="GG.AA.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
                         <span class="text-[10px] font-semibold text-slate-500 uppercase">Not</span>
                         <textarea id="edit-field-note" rows="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white resize-none">${escapeHTML(attrs.note || '')}</textarea>
                     </label>
@@ -1382,6 +1386,7 @@
             const genderStr = document.getElementById('edit-field-gender').value; // '', 'Male', 'Female'
             const birthdate = document.getElementById('edit-field-birthdate').value.trim();
             const birthplace = document.getElementById('edit-field-birthplace').value.trim();
+            const dateofdeath = document.getElementById('edit-field-dateofdeath').value.trim();
             const note = document.getElementById('edit-field-note').value.trim();
             const genderNum = genderStr === 'Male' ? 1 : genderStr === 'Female' ? 2 : 0;
 
@@ -1406,6 +1411,7 @@
                     gender: genderNum,
                     birthdate: birthdate || null,
                     birthplace: birthplace || null,
+                    dateofdeath: dateofdeath || null,
                     note: note || null,
                     parentIds,
                 });
@@ -1522,6 +1528,10 @@
                         <input type="text" id="edit-field-birthplace" value="" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ölüm Tarihi</span>
+                        <input type="text" id="edit-field-dateofdeath" value="" placeholder="GG.AA.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
                         <span class="text-[10px] font-semibold text-slate-500 uppercase">Not</span>
                         <textarea id="edit-field-note" rows="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white resize-none"></textarea>
                     </label>
@@ -1581,6 +1591,7 @@
             const genderStr = document.getElementById('edit-field-gender').value;
             const birthdate = document.getElementById('edit-field-birthdate').value.trim();
             const birthplace = document.getElementById('edit-field-birthplace').value.trim();
+            const dateofdeath = document.getElementById('edit-field-dateofdeath').value.trim();
             const note = document.getElementById('edit-field-note').value.trim();
             const genderNum = genderStr === 'Male' ? 1 : genderStr === 'Female' ? 2 : 0;
 
@@ -1608,6 +1619,7 @@
                     gender: genderNum,
                     birthdate: birthdate || null,
                     birthplace: birthplace || null,
+                    dateofdeath: dateofdeath || null,
                     note: note || null,
                     parentIds,
                     spouseIds,

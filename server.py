@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data.sqlite"
 
-EDITABLE_FIELDS = {"name", "surname", "gender", "birthdate", "birthplace", "note"}
+EDITABLE_FIELDS = {"name", "surname", "gender", "birthdate", "birthplace", "note", "dateofdeath"}
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
