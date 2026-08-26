@@ -324,12 +324,14 @@
             }
 
             let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border-2 border-slate-300 rounded-xl p-4 shadow-sm w-[200px] min-h-[10em] text-center absolute z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
+                <div class="card-header">
                 ${portraitHtml}
                 <h3 class="font-bold text-slate-900 text-lg hover:opacity-80 transition-opacity ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</h3>`;
             if (surname) {
                 html += `<div class="font-semibold text-slate-700 text-base -mt-1 mb-1">${escapeHTML(surname)}</div>`;
             }
-            html += `<div class="text-[10px] text-slate-400 font-mono mb-1">${genderIcon}ID: ${escapeHTML(person.id)}</div>`;
+            html += `<div class="text-[10px] text-slate-400 font-mono mb-1">${genderIcon}ID: ${escapeHTML(person.id)}</div>
+                </div>`;
 
             const displayAttributes = Object.keys(person.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
             if (displayAttributes.length > 0) {
@@ -597,8 +599,29 @@
 
             // Batch read bounding boxes to prevent layout thrashing and keep performance high
             const nodeRects = {};
+            const nodeHeaderRects = {};
             Object.values(nodeElements).forEach(card => {
-                nodeRects[card.getAttribute('data-id')] = card.getBoundingClientRect();
+                const id = card.getAttribute('data-id');
+                nodeRects[id] = card.getBoundingClientRect();
+                const header = card.querySelector('.card-header');
+                nodeHeaderRects[id] = header ? header.getBoundingClientRect() : nodeRects[id];
+            });
+
+            // The lowest point occupied by any card in each generation's row.
+            // Rows are top-aligned but not height-uniform (remeasureY sizes each
+            // row to its tallest card, e.g. one sibling with a long Note), so a
+            // parent-child trunk must clear the whole row's bottom — not just the
+            // specific parent card's own (possibly much shorter) bottom — or the
+            // horizontal bar can land inside a taller sibling card in the same row.
+            const genRowBottom = {};
+            Object.values(nodeElements).forEach(card => {
+                const id = Number(card.getAttribute('data-id'));
+                const gen = personRenderGeneration.get(id);
+                if (gen === undefined) return;
+                const rect = nodeRects[card.getAttribute('data-id')];
+                if (!rect || rect.width === 0 || rect.height === 0) return;
+                const bottom = (rect.bottom - treeRect.top) / currentZoom;
+                if (genRowBottom[gen] === undefined || bottom > genRowBottom[gen]) genRowBottom[gen] = bottom;
             });
 
             const drawnSpouseLines = new Set();
@@ -608,18 +631,28 @@
                 x: (rect.left - treeRect.left) / currentZoom + rect.width / 2 / currentZoom,
                 y: (rect.top - treeRect.top) / currentZoom + rect.height / 2 / currentZoom
             });
+            // Vertical center of a card's fixed-height header (portrait + name
+            // + ID) rather than the whole card — the card's overall height
+            // varies with how much attribute/Note text it has below the
+            // header, so anchoring a horizontal line to the full-card center
+            // would pull it down into that variable text for a card with a
+            // long Note while a short sibling's line stays near the top.
+            const getHeaderCenterY = (id) => {
+                const rect = nodeHeaderRects[id];
+                return (rect.top - treeRect.top) / currentZoom + rect.height / 2 / currentZoom;
+            };
             const isGlowCard = (c) => c.classList.contains('highlighted') || c.classList.contains('highlighted-gen') || c.classList.contains('highlighted-spouse');
             // When one of this pair is recorded as an inline spouse of the
             // other (see spouseAnchorId), anchor the marriage line to the
-            // anchor's own box center for both endpoints, so someone with
+            // anchor's own header center for both endpoints, so someone with
             // multiple spouses (e.g. Abdülhakim with Sıdıka and Nezihe) gets
             // one flat line across the whole row instead of stair-stepping
             // to each spouse's own, differently-sized card. Falls back to
             // null (caller uses each side's own center) for the rarer case
             // of two peer "spouse-with-children" columns with no anchor.
-            const getMarriageLineY = (aId, aRect, bId, bRect) => {
-                if (spouseAnchorId.get(Number(bId)) === Number(aId)) return getCenter(aRect).y;
-                if (spouseAnchorId.get(Number(aId)) === Number(bId)) return getCenter(bRect).y;
+            const getMarriageLineY = (aId, bId) => {
+                if (spouseAnchorId.get(Number(bId)) === Number(aId)) return getHeaderCenterY(aId);
+                if (spouseAnchorId.get(Number(aId)) === Number(bId)) return getHeaderCenterY(bId);
                 return null;
             };
 
@@ -646,9 +679,9 @@
                         if (!sRect || sRect.width === 0 || sRect.height === 0) return;
                         const sCenter = getCenter(sRect);
 
-                        const sharedY = getMarriageLineY(id, cardRect, sId, sRect);
-                        const myLineY = sharedY !== null ? sharedY : center.y;
-                        const spouseLineY = sharedY !== null ? sharedY : sCenter.y;
+                        const sharedY = getMarriageLineY(id, sId);
+                        const myLineY = sharedY !== null ? sharedY : getHeaderCenterY(id);
+                        const spouseLineY = sharedY !== null ? sharedY : getHeaderCenterY(sId);
 
                         const lineColor = personRootColor.get(Number(id)) || '#94a3b8';
                         const isGlowing = isGlowCard(card) && isGlowCard(spouseCard);
@@ -680,7 +713,7 @@
                         if (aSpouseIds.includes(bId) && rA && rB && rA.width > 0 && rB.width > 0) {
                             const cA = getCenter(rA);
                             const cB = getCenter(rB);
-                            const marriageY = getMarriageLineY(aId, rA, bId, rB);
+                            const marriageY = getMarriageLineY(aId, bId);
                             attachPoints.push({
                                 x: (cA.x + cB.x) / 2,
                                 // Where the drawn line actually starts: the
@@ -693,14 +726,15 @@
                                 // cards) has nothing drawn between the marriage
                                 // line and the trunk, leaving them visually
                                 // disconnected even though they share an X.
-                                startY: marriageY !== null ? marriageY : (cA.y + cB.y) / 2,
+                                startY: marriageY !== null ? marriageY : (getHeaderCenterY(aId) + getHeaderCenterY(bId)) / 2,
                                 // Where the row "ends" for the purpose of
                                 // centering the shared horizontal junction bar
-                                // below — the actual bottom of the taller card,
-                                // not the marriage line, so the bar sits centered
-                                // in the real gap between the parent and child
-                                // rows instead of hugging just under the parents.
-                                rowBottomY: (Math.max(rA.bottom, rB.bottom) - treeRect.top) / currentZoom,
+                                // below — the whole generation row's bottom (see
+                                // genRowBottom above), not just this couple's own
+                                // cards, so the bar sits below every card in the
+                                // row instead of only these two.
+                                rowBottomY: genRowBottom[personRenderGeneration.get(Number(aId))] ??
+                                    (Math.max(rA.bottom, rB.bottom) - treeRect.top) / currentZoom,
                                 color: personRootColor.get(Number(aId)) || personRootColor.get(Number(bId)) || '#94a3b8',
                                 glowing: isGlowCard(pA) && isGlowCard(pB),
                             });
@@ -715,7 +749,7 @@
                             attachPoints.push({
                                 x: getCenter(pRect).x,
                                 startY: bottomY,
-                                rowBottomY: bottomY,
+                                rowBottomY: genRowBottom[personRenderGeneration.get(Number(pId))] ?? bottomY,
                                 color: personRootColor.get(Number(pId)) || '#94a3b8',
                                 glowing: isGlowCard(pCard),
                             });
