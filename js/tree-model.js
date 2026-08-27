@@ -22,21 +22,35 @@ export const ROW_GAP = 70;      // vertical gap between generation rows
 //
 // There are usually far more root trees than colors, so color alone repeats
 // and two unrelated families end up looking identical. Each root instead
-// gets a (color, stroke-pattern) pair. Within one cycle of 9 roots the
-// colors are strongly separated hues; each new cycle both rotates the
-// color order (so root 10 is not just "root 1 with dashes") and switches
-// to the next, visually louder dash pattern. 9 colors x 5 patterns = 45
-// obviously distinct family line styles before anything repeats.
+// gets a (color, stroke-pattern) pair. Within one cycle of 20 roots the
+// colors are strongly separated hues (a full color wheel walked in ~126°
+// jumps, so no two consecutive roots look alike); each new cycle both
+// rotates the color order (so root 21 is not just "root 1 with dashes")
+// and switches to the next, visually louder dash pattern. 20 colors x 5
+// patterns = 100 obviously distinct family line styles before anything
+// repeats. These are held darker/less saturated than the generation
+// fills in index.html so a line never reads as a generation swatch.
 const treeLineColors = [
     '#334155', // 1: Arduvaz — near-black, calm (the dominant main tree)
-    '#e11d48', // 2: Kırmızı / Gül (Rose 600)
-    '#2563eb', // 3: Mavi (Blue 600)
-    '#059669', // 4: Yeşil (Emerald 600)
-    '#ea580c', // 5: Turuncu (Orange 600)
-    '#9333ea', // 6: Mor (Purple 600)
-    '#0891b2', // 7: Turkuaz (Cyan 600)
-    '#c026d3', // 8: Macenta (Fuchsia 600)
-    '#a16207'  // 9: Kahve / Hardal (Yellow 700)
+    '#1eb82d', // 2: Yeşil
+    '#3d1eb8', // 3: Çivit Mavisi
+    '#b84c1e', // 4: Kiremit
+    '#1eb85c', // 5: Zümrüt
+    '#6b1eb8', // 6: Menekşe
+    '#b87b1e', // 7: Toprak / Hardal
+    '#1eb88a', // 8: Deniz Yeşili
+    '#991eb8', // 9: Mor
+    '#b8a91e', // 10: Zeytin Sarısı
+    '#1eb8b8', // 11: Camgöbeği
+    '#b81ea9', // 12: Macenta
+    '#99b81e', // 13: Fıstık Yeşili
+    '#1e8ab8', // 14: Gök Mavisi
+    '#b81e7b', // 15: Pembe
+    '#6bb81e', // 16: Çimen Yeşili
+    '#1e5cb8', // 17: Mavi
+    '#b81e4c', // 18: Gül Rengi
+    '#b81e1e', // 19: Kırmızı
+    '#1e2db8'  // 20: Lacivert
 ];
 
 // SVG stroke-dasharray values. '' == solid. Kept coarse and far apart so
@@ -53,9 +67,9 @@ const treeLineDashes = [
 export function treeLineStyle(i) {
     const n = treeLineColors.length;
     const cycle = Math.floor(i / n);
-    // 4 is coprime with 9, so rotating by 4*cycle still visits every color
+    // 7 is coprime with 20, so rotating by 7*cycle still visits every color
     // once per cycle while making consecutive cycles look different.
-    const color = treeLineColors[(i + cycle * 4) % n];
+    const color = treeLineColors[(i + cycle * 7) % n];
     const dash = treeLineDashes[cycle % treeLineDashes.length];
     return { color, dash };
 }

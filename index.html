@@ -4,6 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SQLite Family Tree Viewer (V2)</title>
+
+    <!-- Apply the saved theme before first paint to avoid a flash.
+         Default is light — dark mode is opt-in and only sticks once chosen. -->
+    <script>
+        try {
+            if (localStorage.getItem('theme') === 'dark') {
+                document.documentElement.classList.add('dark');
+            }
+        } catch (e) {}
+    </script>
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons via reliable CDN -->
@@ -109,6 +120,85 @@
             border-color: var(--highlight-color, #3b82f6);
             box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(59, 130, 246, 0.35));
         }
+
+        /* ============================================================
+           Dark mode
+           Tailwind's CDN build emits utility rules at specificity (0,1,0);
+           prefixing each with `html.dark ` (or `:hover`/`::placeholder`
+           where relevant) outranks them without touching the markup, so
+           every hardcoded `bg-white` / `text-slate-*` / … in the HTML and
+           in the JS-generated card markup gets remapped in one place.
+           ============================================================ */
+        html.dark { color-scheme: dark; }
+
+        html.dark body {
+            background-color: #0f172a;
+            /* Wash the (light-tuned) tile texture down so it reads as a faint
+               grain instead of a bright grid on the dark canvas. */
+            background-image:
+                linear-gradient(rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.8)),
+                url('https://www.transparenttextures.com/patterns/cubes.png');
+        }
+
+        /* Opaque + translucent surfaces */
+        html.dark .bg-white { background-color: #1e293b; }
+        html.dark .bg-white\/95 { background-color: rgba(30, 41, 59, 0.95); }
+        html.dark .bg-white\/70 { background-color: rgba(30, 41, 59, 0.55); }
+        html.dark .bg-slate-50 { background-color: #0f172a; }
+        html.dark .bg-slate-50\/95 { background-color: rgba(15, 23, 42, 0.95); }
+        html.dark .bg-slate-100 { background-color: #334155; }
+        html.dark .bg-slate-200 { background-color: #475569; }
+        html.dark .bg-slate-600 { background-color: #64748b; }
+        html.dark .hover\:bg-slate-100:hover { background-color: #334155; }
+        html.dark .hover\:bg-slate-200:hover { background-color: #3f4d61; }
+
+        /* Text */
+        html.dark .text-slate-900 { color: #f1f5f9; }
+        html.dark .text-slate-800 { color: #e2e8f0; }
+        html.dark .text-slate-700 { color: #cbd5e1; }
+        html.dark .text-slate-600 { color: #b6c1d0; }
+        html.dark .text-slate-500 { color: #94a3b8; }
+        html.dark .text-slate-400 { color: #7c8aa0; }
+        html.dark .text-slate-300 { color: #64748b; }
+        html.dark .hover\:text-slate-600:hover { color: #cbd5e1; }
+        html.dark .placeholder-slate-400::placeholder { color: #64748b; }
+
+        /* Borders */
+        html.dark .border-slate-100 { border-color: #2a3648; }
+        html.dark .border-slate-200 { border-color: #334155; }
+        html.dark .border-slate-300 { border-color: #475569; }
+
+        /* Amber (note) accents */
+        html.dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.12); }
+        html.dark .border-amber-100 { border-color: rgba(245, 158, 11, 0.28); }
+
+        /* Red (danger) accents */
+        html.dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.14); }
+        html.dark .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.18); }
+        html.dark .border-red-200 { border-color: rgba(239, 68, 68, 0.35); }
+        html.dark .text-red-600 { color: #f87171; }
+        html.dark .text-red-500 { color: #f87171; }
+        html.dark .hover\:text-red-500:hover { color: #fca5a5; }
+
+        /* Blue accents */
+        html.dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.16); }
+        html.dark .text-blue-600 { color: #60a5fa; }
+
+        /* Deepen the card hover-lift shadow so it reads against a dark canvas */
+        html.dark .tree-node-card:not(.root-node):hover {
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+        }
+
+        /* The bloodline-glow drop-shadow is near-black by default — invisible on dark */
+        html.dark .svg-glow-line {
+            filter: drop-shadow(0 0 4px rgba(148, 163, 184, 0.55));
+        }
+
+        /* Family-root diamond */
+        html.dark .root-node .root-diamond {
+            background: #64748b;
+            border-color: #94a3b8;
+        }
     </style>
 </head>
 <body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative flex bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] select-none">
@@ -119,6 +209,11 @@
         <div id="people-count" class="absolute top-4 left-4 z-30 bg-white/95 backdrop-blur text-slate-600 text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-200 pointer-events-none">
             0 kişi
         </div>
+
+        <!-- Light / dark theme toggle -->
+        <button id="btn-theme-toggle" title="Aydınlık / karanlık tema" class="absolute top-4 right-4 z-30 bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+            <i data-lucide="moon" class="w-4 h-4"></i>
+        </button>
 
         <!-- Error Overlay -->
         <div id="error-overlay" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-red-50 text-red-600 px-6 py-4 rounded-xl shadow-lg border border-red-200 flex items-center gap-3 max-w-2xl">
@@ -145,52 +240,7 @@
     </div>
 
     <!-- Right Sidebar for Controls & Legend -->
-    <div class="w-[180px] h-full bg-slate-50/95 backdrop-blur border-l border-slate-200 shadow-xl flex flex-col p-4 z-20 shrink-0">
-        
-        <!-- Toolbar -->
-        <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden items-center justify-center mb-4 shrink-0">
-            <button id="btn-zoom-out" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom Out">
-                <i data-lucide="zoom-out" class="w-5 h-5"></i>
-            </button>
-            <button id="btn-zoom-reset" class="p-2 hover:bg-slate-100 text-slate-600 border-x border-slate-200 transition-colors cursor-pointer flex-1 flex justify-center" title="Reset Zoom">
-                <i data-lucide="maximize" class="w-5 h-5"></i>
-            </button>
-            <button id="btn-zoom-in" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom In">
-                <i data-lucide="zoom-in" class="w-5 h-5"></i>
-            </button>
-        </div>
-
-        <!-- Search -->
-        <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden items-center justify-center mb-4 shrink-0">
-            <input type="text" id="search-input" placeholder="Ara..." class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
-            <button id="btn-search-clear" class="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer hidden justify-center shrink-0" title="Temizle">
-                <i data-lucide="x" class="w-4 h-4"></i>
-            </button>
-            <button id="btn-search-prev" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex justify-center shrink-0" title="Önceki Sonuç">
-                <i data-lucide="chevron-up" class="w-4 h-4"></i>
-            </button>
-            <button id="btn-search-next" class="p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex justify-center shrink-0" title="Sonraki Sonuç">
-                <i data-lucide="chevron-down" class="w-4 h-4"></i>
-            </button>
-        </div>
-
-        <!-- Add Person -->
-        <button id="btn-add-person" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-2 shrink-0 p-2 text-sm font-medium" title="Kişi Ekle">
-            <i data-lucide="user-plus" class="w-5 h-5"></i>
-            <span>Kişi Ekle</span>
-        </button>
-
-        <!-- Add Root (family-origin diamond) -->
-        <button id="btn-add-root" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-2 shrink-0 p-2 text-sm font-medium" title="Kök Ekle">
-            <i data-lucide="diamond" class="w-5 h-5"></i>
-            <span>Kök Ekle</span>
-        </button>
-
-        <!-- Export currently displayed tree(s) as a single vector image -->
-        <button id="btn-export-png" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-6 shrink-0 p-2 text-sm font-medium disabled:opacity-60 disabled:cursor-wait" title="Görüntülenen ağac(lar)ı tek bir SVG görüntü olarak indir — her yakınlaştırma seviyesinde net kalır">
-            <i data-lucide="download" class="w-5 h-5"></i>
-            <span>Görüntü İndir</span>
-        </button>
+    <div class="w-[200px] h-full bg-slate-50/95 backdrop-blur border-l border-slate-200 shadow-xl flex flex-col p-4 z-20 shrink-0">
 
         <!-- Person Details Panel -->
         <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 mb-4">
@@ -216,8 +266,18 @@
             </div>
         </div>
 
+        <!-- Add Person / Add Root -->
+        <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
+            <button id="btn-add-root" title="Kök Ekle" class="flex-1 flex items-center justify-center gap-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
+                <i data-lucide="diamond" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-add-person" title="Kişi Ekle" class="flex-1 flex items-center justify-center gap-2 border-l border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
+                <i data-lucide="user-plus" class="w-5 h-5"></i>
+            </button>
+        </div>
+
         <!-- Generation Color Legend -->
-        <div id="generation-legend" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col flex-1 min-h-0 overflow-hidden">
+        <div id="generation-legend" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col flex-1 min-h-0 overflow-hidden mb-4">
             <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
                 <span>Nesiller</span>
             </div>
@@ -228,12 +288,40 @@
                 16+ başa döner
             </div>
         </div>
+
+        <!-- Search -->
+        <div class="flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
+            <div class="flex items-center justify-center">
+                <input type="text" id="search-input" placeholder="Ara..." class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
+                <button id="btn-search-clear" class="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer hidden justify-center shrink-0" title="Temizle">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div class="flex items-stretch border-t border-slate-200">
+                <button id="btn-search-prev" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex items-center justify-center" title="Önceki Sonuç">
+                    <i data-lucide="chevron-up" class="w-4 h-4"></i>
+                </button>
+                <button id="btn-search-next" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex items-center justify-center" title="Sonraki Sonuç">
+                    <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
         
         <!-- Minimap -->
-        <div id="minimap-wrapper" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 h-[180px] mt-4">
-            <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
-                <span>Mini Harita</span>
-                <i data-lucide="map" class="w-3.5 h-3.5 text-slate-400"></i>
+        <div id="minimap-wrapper" class="bg-white rounded-lg shadow-sm border border-slate-200 hidden flex-col shrink-0 h-[240px]">
+            <div class="flex overflow-hidden rounded shrink-0">
+                <button id="btn-zoom-out" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom Out">
+                    <i data-lucide="zoom-out" class="w-5 h-5"></i>
+                </button>
+                <button id="btn-zoom-reset" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Reset Zoom">
+                    <i data-lucide="maximize" class="w-5 h-5"></i>
+                </button>
+                <button id="btn-zoom-in" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom In">
+                    <i data-lucide="zoom-in" class="w-5 h-5"></i>
+                </button>
+                <button id="btn-export-png" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Görüntülenen ağac(lar)ı tek bir SVG görüntü olarak indir">
+                    <i data-lucide="download" class="w-5 h-5"></i>
+                </button>
             </div>
             <div id="minimap-container" class="relative w-full flex-1 bg-slate-50 overflow-hidden border border-slate-200 rounded cursor-crosshair">
                 <canvas id="minimap-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
@@ -318,7 +406,7 @@
         let personRootColor = new Map();
         // person id -> SVG stroke-dasharray for their family's lines ('' = solid).
         // Pairs with personRootColor so each root tree's connectors are unique
-        // even once the 9-color palette wraps.
+        // even once the 20-color palette wraps.
         let personRootDash = new Map();
         // Inline-childless-spouse id -> the id of the main person they're
         // attached to. When someone has more than one spouse (e.g. Abdülhakim
@@ -342,24 +430,33 @@
                 .replace(/'/g, '&#39;');
         }
 
-        // 15 birbirinden tamamen farklı ve zıt renk. (Global Scope)
-        // Modulo (%) operatörü ile 15'ten derin ağaçlarda başa sararak sınırsız derinlik destekler.
+        // 20 birbirinden tamamen farklı ve zıt renk. (Global Scope)
+        // Renk çemberi 18° adımlarla taranır, sonra 7 adımlık kaydırmayla
+        // sıralanır; böylece ardışık jenerasyonlar ~126° uzak (asla benzemez).
+        // Modulo (%) ile 20'den derin ağaçlarda başa sararak sınırsız derinlik destekler.
+        // Bu tonlar, çizgi renklerinden (js/tree-model.js) daha parlak/açık
+        // tutulur ki jenerasyon dolgusu ile bağlantı çizgisi karışmasın.
         const generationColors = [
-            { hex: '#ef4444', rgba: 'rgba(239, 68, 68, 0.3)' },   // 1: Kırmızı
-            { hex: '#3b82f6', rgba: 'rgba(59, 130, 246, 0.3)' },  // 2: Mavi
-            { hex: '#22c55e', rgba: 'rgba(34, 197, 94, 0.3)' },   // 3: Yeşil
-            { hex: '#f97316', rgba: 'rgba(249, 115, 22, 0.3)' },  // 4: Turuncu
-            { hex: '#a855f7', rgba: 'rgba(168, 85, 247, 0.3)' },  // 5: Mor
-            { hex: '#06b6d4', rgba: 'rgba(6, 182, 212, 0.3)' },   // 6: Camgöbeği
-            { hex: '#eab308', rgba: 'rgba(234, 179, 8, 0.3)' },   // 7: Sarı
-            { hex: '#ec4899', rgba: 'rgba(236, 72, 153, 0.3)' },  // 8: Pembe
-            { hex: '#84cc16', rgba: 'rgba(132, 204, 22, 0.3)' },  // 9: Limon Yeşili
-            { hex: '#6366f1', rgba: 'rgba(99, 102, 241, 0.3)' },  // 10: Çivit Mavisi
-            { hex: '#14b8a6', rgba: 'rgba(20, 184, 166, 0.3)' },  // 11: Turkuaz
-            { hex: '#f43f5e', rgba: 'rgba(244, 63, 94, 0.3)' },   // 12: Gül Rengi
-            { hex: '#f59e0b', rgba: 'rgba(245, 158, 11, 0.3)' },  // 13: Kehribar
-            { hex: '#10b981', rgba: 'rgba(16, 185, 129, 0.3)' },  // 14: Zümrüt
-            { hex: '#64748b', rgba: 'rgba(100, 116, 139, 0.3)' }  // 15: Arduvaz (Gri-Mavi)
+            { hex: '#e04429', rgba: 'rgba(224, 68, 41, 0.3)' },    // 1: Kırmızı-Turuncu
+            { hex: '#29e057', rgba: 'rgba(41, 224, 87, 0.3)' },    // 2: Yeşil
+            { hex: '#6929e0', rgba: 'rgba(105, 41, 224, 0.3)' },   // 3: Menekşe
+            { hex: '#e07b29', rgba: 'rgba(224, 123, 41, 0.3)' },   // 4: Turuncu
+            { hex: '#29e08e', rgba: 'rgba(41, 224, 142, 0.3)' },   // 5: Zümrüt
+            { hex: '#a029e0', rgba: 'rgba(160, 41, 224, 0.3)' },   // 6: Mor
+            { hex: '#e0b329', rgba: 'rgba(224, 179, 41, 0.3)' },   // 7: Kehribar
+            { hex: '#29e0c5', rgba: 'rgba(41, 224, 197, 0.3)' },   // 8: Turkuaz
+            { hex: '#d729e0', rgba: 'rgba(215, 41, 224, 0.3)' },   // 9: Macenta
+            { hex: '#d7e029', rgba: 'rgba(215, 224, 41, 0.3)' },   // 10: Limon Sarısı
+            { hex: '#29c5e0', rgba: 'rgba(41, 197, 224, 0.3)' },   // 11: Camgöbeği
+            { hex: '#e029b3', rgba: 'rgba(224, 41, 179, 0.3)' },   // 12: Pembe
+            { hex: '#a0e029', rgba: 'rgba(160, 224, 41, 0.3)' },   // 13: Limon Yeşili
+            { hex: '#298ee0', rgba: 'rgba(41, 142, 224, 0.3)' },   // 14: Mavi
+            { hex: '#e0297b', rgba: 'rgba(224, 41, 123, 0.3)' },   // 15: Gül Rengi
+            { hex: '#69e029', rgba: 'rgba(105, 224, 41, 0.3)' },   // 16: Ç. Yeşil
+            { hex: '#2957e0', rgba: 'rgba(41, 87, 224, 0.3)' },    // 17: Çivit Mavisi
+            { hex: '#e02944', rgba: 'rgba(224, 41, 68, 0.3)' },    // 18: Kırmızı
+            { hex: '#32e029', rgba: 'rgba(50, 224, 41, 0.3)' },    // 19: Çim Yeşili
+            { hex: '#3229e0', rgba: 'rgba(50, 41, 224, 0.3)' }     // 20: Lacivert
         ];
 
         // Utility: Generate HTML for a person's card to prevent code duplication
@@ -1430,7 +1527,8 @@
                 if (card.classList.contains('highlighted') || card.classList.contains('highlighted-gen') || card.classList.contains('highlighted-spouse')) {
                     ctx.fillStyle = card.style.getPropertyValue('--highlight-color').trim() || '#3b82f6';
                 } else {
-                    ctx.fillStyle = '#475569'; // Darker slate for better contrast
+                    // Darker slate on a light map; lighter slate on a dark one.
+                    ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#94a3b8' : '#475569';
                 }
                 ctx.fillRect(offsetX + x * minimapScale, offsetY + y * minimapScale, w * minimapScale, h * minimapScale);
             });
@@ -2736,6 +2834,22 @@ ${cardsInner}
                 searchInput.select();
             }
         });
+
+        // --- Theme toggle (light / dark) ---
+        const btnThemeToggle = document.getElementById('btn-theme-toggle');
+        function syncThemeIcon() {
+            const isDark = document.documentElement.classList.contains('dark');
+            btnThemeToggle.innerHTML = `<i data-lucide="${isDark ? 'sun' : 'moon'}" class="w-4 h-4"></i>`;
+            lucide.createIcons();
+        }
+        btnThemeToggle.addEventListener('click', () => {
+            const isDark = document.documentElement.classList.toggle('dark');
+            try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch (e) {}
+            syncThemeIcon();
+            // The minimap is drawn on a <canvas>, so its colors don't follow CSS.
+            drawMinimap();
+        });
+        syncThemeIcon();
 
         // Initial Execution
         loadAndRenderTree();
