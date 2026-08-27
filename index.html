@@ -2719,6 +2719,15 @@ ${cardsInner}
         btnSearchPrev.addEventListener('click', () => navigateSearch(-1));
         btnSearchNext.addEventListener('click', () => navigateSearch(1));
 
+        // Cmd+F / Ctrl+F focuses the search box instead of the browser's find bar
+        document.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+            }
+        });
+
         // Initial Execution
         loadAndRenderTree();
     });
