@@ -24,15 +24,15 @@
         .tree-node-card {
             transition: all 0.2s ease-in-out;
         }
-        .tree-node-card:hover {
+        .tree-node-card:not(.root-node):hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
         }
-        .tree-node-card.highlighted {
+        .tree-node-card.highlighted:not(.root-node) {
             border-color: var(--highlight-color, #3b82f6);
             box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(59, 130, 246, 0.3));
         }
-        .tree-node-card.highlighted-gen {
+        .tree-node-card.highlighted-gen:not(.root-node) {
             border-color: var(--highlight-color);
         }
 
@@ -97,7 +97,9 @@
             overflow-wrap: anywhere;
             line-height: 1.15;
         }
-        .root-node:hover .root-diamond {
+        /* Only the diamond itself reacts to hover, not the invisible 220px
+           square that wraps it for tidy-tree X math. */
+        .root-node .root-diamond:hover {
             box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.18);
         }
         .root-node.highlighted .root-diamond,
