@@ -656,6 +656,53 @@
                 return null;
             };
 
+            // Someone with 2+ inline spouses (e.g. Abdülhakim with Sıdıka and
+            // Nezihe) is laid out as one flat row of cards. Drawing
+            // "anchor -> every spouse" would make the line to the farther
+            // spouse retrace the exact same path as the line to the nearer
+            // one (both start at the anchor, same Y), so the nearer spouse's
+            // own card ends up sitting on top of the farther spouse's line.
+            // Instead chain only adjacent cards in on-screen left-to-right
+            // order — anchor -> nearest spouse -> next spouse -> ... — so
+            // every drawn segment touches a card only at its own endpoints,
+            // and mark every pair within the group as handled so the normal
+            // per-card loop below doesn't also draw the redundant direct ones.
+            const anchorGroups = new Map();
+            spouseAnchorId.forEach((anchorId, spouseId) => {
+                if (!anchorGroups.has(anchorId)) anchorGroups.set(anchorId, []);
+                anchorGroups.get(anchorId).push(spouseId);
+            });
+            anchorGroups.forEach((spouseIds, anchorId) => {
+                if (spouseIds.length < 2) return;
+                const anchorKey = String(anchorId);
+                const anchorRect = nodeRects[anchorKey];
+                if (!anchorRect || anchorRect.width === 0) return;
+
+                const members = [{ id: anchorKey, x: getCenter(anchorRect).x }];
+                spouseIds.forEach(sId => {
+                    const sKey = String(sId);
+                    const sRect = nodeRects[sKey];
+                    if (!sRect || sRect.width === 0) return;
+                    members.push({ id: sKey, x: getCenter(sRect).x });
+                });
+                members.sort((a, b) => a.x - b.x);
+
+                for (let i = 0; i < members.length; i++) {
+                    for (let j = i + 1; j < members.length; j++) {
+                        drawnSpouseLines.add([members[i].id, members[j].id].sort().join('-'));
+                    }
+                }
+
+                const anchorHeaderY = getHeaderCenterY(anchorKey);
+                const lineColor = personRootColor.get(Number(anchorId)) || '#94a3b8';
+                for (let i = 0; i < members.length - 1; i++) {
+                    const a = members[i], b = members[i + 1];
+                    const aCard = nodeElements[a.id], bCard = nodeElements[b.id];
+                    const isGlowing = isGlowCard(aCard) && isGlowCard(bCard);
+                    queueCrossLink(pendingLines, a.x, anchorHeaderY, b.x, anchorHeaderY, 'spouse', lineColor, null, isGlowing);
+                }
+            });
+
             Object.values(nodeElements).forEach(card => {
                 const id = card.getAttribute('data-id');
                 const cardRect = nodeRects[id];
