@@ -16,9 +16,15 @@ const SIBLING_GAP = 160;        // gap between different children (family units)
 const ROOT_GAP = 240;           // gap between independent top-level root trees
 export const ROW_GAP = 70;      // vertical gap between generation rows
 
-// Per-independent-root-tree line color (a root is a person with no recorded
+// Per-independent-root-tree line style (a root is a person with no recorded
 // parents; two roots only linked via a marriage further down still each get
-// their own color so the connecting cross-tree line is easy to trace).
+// their own style so the connecting cross-tree line is easy to trace).
+//
+// There are usually far more root trees than colors, so color alone repeats
+// and two unrelated families end up looking identical. Each root instead
+// gets a (color, stroke-pattern) pair: the color cycles every 9 roots, and
+// every full cycle bumps to the next dash pattern. 9 colors x 5 patterns =
+// 45 visually distinct family line styles before anything repeats.
 const treeLineColors = [
     '#64748b', // 1: Arduvaz (Default)
     '#78716c', // 2: Taş / Sıcak Gri (Stone 500)
@@ -30,6 +36,23 @@ const treeLineColors = [
     '#b45309', // 8: Koyu Kehribar / Kahve (Amber 700)
     '#334155'  // 9: Koyu Arduvaz (Slate 700)
 ];
+
+// SVG stroke-dasharray values, tuned for a 2px stroke. '' == solid.
+const treeLineDashes = [
+    '',              // solid
+    '7 5',           // dashed
+    '1.5 5',         // dotted
+    '11 5 1.5 5',    // dash-dot
+    '4 4'            // fine dash
+];
+
+// Style for the i-th independent root tree.
+export function treeLineStyle(i) {
+    return {
+        color: treeLineColors[i % treeLineColors.length],
+        dash: treeLineDashes[Math.floor(i / treeLineColors.length) % treeLineDashes.length]
+    };
+}
 
 // Utility: Parse ID lists safely (accepts an array, a JSON-array string, or
 // a single bare id, since data can arrive from either the API's arrays or
@@ -319,6 +342,7 @@ export function computeTreeLayout(roots) {
     const personLayoutX = new Map();
     const personRenderGeneration = new Map();
     const personRootColor = new Map();
+    const personRootDash = new Map();
     const spouseAnchorId = new Map();
 
     // One column = one person's own card (+ any inline childless spouses
@@ -395,30 +419,32 @@ export function computeTreeLayout(roots) {
 
     // Top-down pass: convert the local offsets computed above into absolute
     // page-space X, writing into the lookup maps above.
-    function recordColumn(col, originX, rootColor) {
+    function recordColumn(col, originX, rootStyle) {
         personLayoutX.set(col.person.id, originX + col.ownX);
         personRenderGeneration.set(col.person.id, col.person._generation);
-        personRootColor.set(col.person.id, rootColor);
+        personRootColor.set(col.person.id, rootStyle.color);
+        personRootDash.set(col.person.id, rootStyle.dash);
         col.spouseX.forEach((x, spouseId) => {
             personLayoutX.set(spouseId, originX + x);
             // An inline childless spouse has no subtree of their own to keep
             // consistent, so render them on their anchor partner's row.
             personRenderGeneration.set(spouseId, col.person._generation);
-            personRootColor.set(spouseId, rootColor);
+            personRootColor.set(spouseId, rootStyle.color);
+            personRootDash.set(spouseId, rootStyle.dash);
         });
         col.childUnits.forEach(unit => {
-            assignAbsolutePositions(unit, originX + unit.finalOffset, rootColor);
+            assignAbsolutePositions(unit, originX + unit.finalOffset, rootStyle);
         });
     }
 
-    function assignAbsolutePositions(familyUnit, originX, rootColor) {
+    function assignAbsolutePositions(familyUnit, originX, rootStyle) {
         familyUnit.columns.forEach(col => {
-            recordColumn(col, originX + col.finalOffset, rootColor);
+            recordColumn(col, originX + col.finalOffset, rootStyle);
         });
     }
 
     if (roots.length === 0) {
-        return { totalWidth: 0, personLayoutX, personRenderGeneration, personRootColor, spouseAnchorId };
+        return { totalWidth: 0, personLayoutX, personRenderGeneration, personRootColor, personRootDash, spouseAnchorId };
     }
 
     const rootUnits = roots.map(r => layoutFamilyUnit(r));
@@ -427,8 +453,7 @@ export function computeTreeLayout(roots) {
         : { offsets: [0] };
 
     rootUnits.forEach((unit, i) => {
-        const color = treeLineColors[i % treeLineColors.length];
-        assignAbsolutePositions(unit, packed.offsets[i], color);
+        assignAbsolutePositions(unit, packed.offsets[i], treeLineStyle(i));
     });
 
     let totalWidth = 0;
@@ -437,7 +462,7 @@ export function computeTreeLayout(roots) {
         if (right > totalWidth) totalWidth = right;
     });
 
-    return { totalWidth, personLayoutX, personRenderGeneration, personRootColor, spouseAnchorId };
+    return { totalWidth, personLayoutX, personRenderGeneration, personRootColor, personRootDash, spouseAnchorId };
 }
 
 // Flatten the hierarchy into every rendered person once (each person
