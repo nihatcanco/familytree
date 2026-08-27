@@ -46,3 +46,38 @@ export async function deletePerson(id) {
     }
     return res.json();
 }
+
+export async function createRoot(fields) {
+    const res = await fetch(`${API_BASE}/roots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields || {})
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Kök eklenemedi (${res.status})`);
+    }
+    return res.json();
+}
+
+export async function updateRoot(id, fields) {
+    const res = await fetch(`${API_BASE}/roots/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields)
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Kök kaydedilemedi (${res.status})`);
+    }
+    return res.json();
+}
+
+export async function deleteRoot(id) {
+    const res = await fetch(`${API_BASE}/roots/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Kök silinemedi (${res.status})`);
+    }
+    return res.json();
+}

@@ -62,6 +62,49 @@
         .tree-node-card.highlighted-spouse {
             border-color: var(--highlight-color, #94a3b8);
         }
+
+        /* Family root: a diamond showing only its title. Kept 220px wide so the
+           tidy-tree X math (CARD_WIDTH) and connector centre-x stay correct. */
+        .root-node {
+            width: 220px;
+            height: 140px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .root-node .root-diamond {
+            width: 92px;
+            height: 92px;
+            transform: rotate(45deg);
+            border-radius: 8px;
+            background: #475569;
+            border: 2px solid #334155;
+            transition: box-shadow 0.2s ease-in-out, background 0.2s, border-color 0.2s;
+        }
+        .root-node .root-title {
+            position: absolute;
+            left: 0; right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            text-align: center;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: #fff;
+            pointer-events: none;
+            padding: 0 44px;
+            overflow-wrap: anywhere;
+            line-height: 1.15;
+        }
+        .root-node:hover .root-diamond {
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.18);
+        }
+        .root-node.highlighted .root-diamond,
+        .root-node.highlighted-gen .root-diamond {
+            border-color: var(--highlight-color, #3b82f6);
+            box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(59, 130, 246, 0.35));
+        }
     </style>
 </head>
 <body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative flex bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] select-none">
@@ -133,6 +176,12 @@
             <span>Kişi Ekle</span>
         </button>
 
+        <!-- Add Root (family-origin diamond) -->
+        <button id="btn-add-root" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-2 shrink-0 p-2 text-sm font-medium" title="Kök Ekle">
+            <i data-lucide="diamond" class="w-5 h-5"></i>
+            <span>Kök Ekle</span>
+        </button>
+
         <!-- Export currently displayed tree(s) as a single vector image -->
         <button id="btn-export-png" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-6 shrink-0 p-2 text-sm font-medium disabled:opacity-60 disabled:cursor-wait" title="Görüntülenen ağac(lar)ı tek bir SVG görüntü olarak indir — her yakınlaştırma seviyesinde net kalır">
             <i data-lucide="download" class="w-5 h-5"></i>
@@ -191,9 +240,9 @@
 
     <!-- Application Logic -->
     <script type="module">
-    import { getTree, updatePerson, createPerson, deletePerson } from './js/api.js';
+    import { getTree, updatePerson, createPerson, deletePerson, createRoot, updateRoot, deleteRoot } from './js/api.js';
     import {
-        CARD_WIDTH, ROW_GAP,
+        CARD_WIDTH, ROW_GAP, rootNodeId, rootDbId,
         buildHierarchy, computeTreeLayout, collectAllPersons, pruneForFocus, findPersonNode
     } from './js/tree-model.js';
 
@@ -312,9 +361,27 @@
         // Utility: Generate HTML for a person's card to prevent code duplication
         function generateCardHTML(person, isSpouse = false) {
             if (!person) return '';
+
+            // A family root renders as a diamond showing only its editable title.
+            if (person._isRoot) {
+                const rootGenAttr = person._generation ? `data-generation="${person._generation}"` : '';
+                const rootTitle = person.title || 'ROOT';
+                const rootDetails = { isRoot: true, id: person.id, title: rootTitle, generation: person._generation };
+                return `<div data-id="${person.id}" data-root="1" ${rootGenAttr} data-details="${escapeHTML(JSON.stringify(rootDetails))}"
+                    class="tree-node-card root-node absolute z-10 cursor-pointer text-center">
+                    <div class="root-diamond"></div>
+                    <span class="root-title">${escapeHTML(rootTitle)}</span>
+                </div>`;
+            }
+
             const cardClass = isSpouse ? 'spouse-card' : 'direct-relative-card';
             const personIdAttr = person.id ? `data-id="${person.id}"` : '';
-            const parentIdsAttr = (person._parentIds && person._parentIds.length > 0) ? `data-parent-ids="${person._parentIds.join(',')}"` : '';
+            // Fold the (negative) root-parent id into data-parent-ids so the
+            // diamond -> founding-member connector draws; the edit form still
+            // reads the real _parentIds only.
+            const allParentIds = [...(person._parentIds || [])];
+            if (person._rootParentId != null) allParentIds.push(person._rootParentId);
+            const parentIdsAttr = allParentIds.length > 0 ? `data-parent-ids="${allParentIds.join(',')}"` : '';
             const spouseIdsAttr = (person._spouseIds && person._spouseIds.length > 0) ? `data-spouse-ids="${person._spouseIds.join(',')}"` : '';
             const genAttr = person._generation ? `data-generation="${person._generation}"` : '';
             
@@ -473,7 +540,7 @@
 
             const persons = collectAllPersons(roots);
             const peopleCountEl = document.getElementById('people-count');
-            if (peopleCountEl) peopleCountEl.textContent = `${persons.length} kişi`;
+            if (peopleCountEl) peopleCountEl.textContent = `${persons.filter(({ person }) => !person._isRoot).length} kişi`;
             let html = '';
             persons.forEach(({ person, isSpouse }) => { html += generateCardHTML(person, isSpouse); });
             treeRoot.innerHTML = html;
@@ -860,8 +927,8 @@
         // Fetch Data and Render Tree Logic
         async function loadAndRenderTree() {
             try {
-                const { people } = await getTree();
-                const roots = buildHierarchy(people);
+                const { people, roots: rootRows } = await getTree();
+                const roots = buildHierarchy(people, rootRows);
                 originalRoots = roots;
 
                 // Build Tree
@@ -1329,6 +1396,134 @@
             lucide.createIcons();
         }
 
+        // Every person currently linked as a founding member of the given root
+        // hierarchy node (id is negative), read back off the built hierarchy.
+        function rootMemberPersons(rootId) {
+            const seen = new Set();
+            return collectAllPersons(originalRoots)
+                .map(({ person }) => person)
+                .filter(p => {
+                    if (Number(p._rootParentId) !== Number(rootId)) return false;
+                    if (seen.has(Number(p.id))) return false;
+                    seen.add(Number(p.id));
+                    return true;
+                });
+        }
+
+        // Read-only panel for a family root (the diamond).
+        function showRootDetailsView(details) {
+            currentDetailsPersonId = Number(details.id);
+            const title = details.title || 'ROOT';
+            const members = rootMemberPersons(details.id);
+
+            let html = `
+                <div class="w-10 h-10 rotate-45 rounded bg-slate-600 mx-auto mb-3 mt-1"></div>
+                <div class="font-bold text-slate-900 text-sm mb-1">${escapeHTML(title)}</div>
+                <div class="text-[10px] text-slate-400 font-mono mb-2 border-b border-slate-100 pb-2">Aile kökü · ${escapeHTML(details.generation)}. jenerasyon</div>`;
+            if (members.length) {
+                html += `<div class="text-left text-xs text-slate-600 flex flex-col gap-1">
+                    <div class="font-semibold text-slate-700 text-[10px] uppercase">Kişiler</div>`;
+                members.forEach(p => {
+                    const label = `${p.name || ''} ${(p.attributes && p.attributes.surname) || ''}`.trim() || `#${p.id}`;
+                    html += `<div class="bg-slate-50 px-2 py-1 rounded-md">${escapeHTML(label)}</div>`;
+                });
+                html += `</div>`;
+            } else {
+                html += `<div class="text-[11px] text-slate-400">Henüz kişi bağlanmadı.</div>`;
+            }
+
+            personDetailsContent.innerHTML = html;
+            personDetailsPanel.classList.remove('hidden');
+            personDetailsPanel.classList.add('flex');
+            if (btnEditDetails) btnEditDetails.classList.remove('hidden');
+            if (btnDeleteDetails) btnDeleteDetails.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        // Editable form for a family root.
+        function showRootDetailsEdit(node) {
+            const rootId = Number(node.id);
+            const currentMemberIds = rootMemberPersons(rootId).map(p => Number(p.id));
+
+            personDetailsContent.innerHTML = `
+                <div class="flex flex-col gap-2">
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Başlık</span>
+                        <input type="text" id="edit-field-root-title" value="${escapeHTML(node.title || 'ROOT')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Jenerasyon</span>
+                        <input type="number" min="1" step="1" id="edit-field-root-gen" value="${node._generation || 1}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                    </label>
+                    <label class="flex flex-col gap-0.5">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Kişiler</span>
+                        <select id="edit-field-root-members" multiple size="6" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                            ${buildPersonOptions(null, currentMemberIds)}
+                        </select>
+                        <span class="text-[9px] text-slate-400">Ailenin en üstteki kişi(ler)i. Alt kuşaklar buradan sayılır.</span>
+                    </label>
+                    <div id="edit-form-error" class="text-[11px] text-red-500 hidden"></div>
+                    <div class="flex gap-2 mt-1">
+                        <button id="btn-save-root" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Kaydet</button>
+                        <button id="btn-cancel-root" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">İptal</button>
+                    </div>
+                </div>`;
+
+            personDetailsPanel.classList.remove('hidden');
+            personDetailsPanel.classList.add('flex');
+            if (btnEditDetails) btnEditDetails.classList.add('hidden');
+            if (btnDeleteDetails) btnDeleteDetails.classList.add('hidden');
+
+            document.getElementById('edit-field-root-title').focus();
+            document.getElementById('btn-cancel-root').addEventListener('click', () => {
+                showRootDetailsView({ isRoot: true, id: node.id, title: node.title, generation: node._generation });
+            });
+            document.getElementById('btn-save-root').addEventListener('click', () => saveRootEdit(node));
+        }
+
+        async function saveRootEdit(node) {
+            const errEl = document.getElementById('edit-form-error');
+            const showFormError = (msg) => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+
+            const title = document.getElementById('edit-field-root-title').value.trim() || 'ROOT';
+            const genRaw = document.getElementById('edit-field-root-gen').value.trim();
+            const generation = Number(genRaw);
+            if (!Number.isInteger(generation) || generation < 1) {
+                showFormError('Jenerasyon 1 veya daha büyük bir tam sayı olmalıdır.');
+                return;
+            }
+            const memberIds = Array.from(document.getElementById('edit-field-root-members').selectedOptions)
+                .map(opt => opt.value).filter(v => v !== '').map(Number);
+
+            const saveBtn = document.getElementById('btn-save-root');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Kaydediliyor...';
+            try {
+                await updateRoot(rootDbId(node.id), { title, generation, memberIds });
+
+                const { people, roots: rootRows } = await getTree();
+                originalRoots = buildHierarchy(people, rootRows);
+
+                const highlightState = captureHighlightState();
+                if (isFocusMode) {
+                    await renderTreeFromHierarchy(pruneForFocus(originalRoots, new Set(highlightState.keys())));
+                } else {
+                    await renderTreeFromHierarchy(originalRoots);
+                }
+                applyHighlightState(highlightState);
+                drawCrossTreeLinks();
+                drawMinimap();
+
+                const updated = findPersonNode(originalRoots, node.id);
+                if (updated) showRootDetailsView({ isRoot: true, id: updated.id, title: updated.title, generation: updated._generation });
+                else closeDetailsPanel();
+            } catch (err) {
+                showFormError('Kaydetme başarısız: ' + err.message);
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Kaydet';
+            }
+        }
+
         // Depth-first search for a node by id across the full hierarchy (a
         // person can appear as a child entry or a spouse entry of another node).
         function findPersonNode(nodes, id) {
@@ -1349,7 +1544,7 @@
         function buildPersonOptions(excludeId, selectedId) {
             const options = collectAllPersons(originalRoots)
                 .map(({ person }) => person)
-                .filter(p => Number(p.id) !== Number(excludeId));
+                .filter(p => !p._isRoot && Number(p.id) !== Number(excludeId));
 
             const seen = new Set();
             const unique = options.filter(p => {
@@ -1513,8 +1708,8 @@
                 // Parent changes can move this person to a different branch of
                 // the tree, so rebuild the whole hierarchy from fresh server
                 // data rather than patching the old node in place.
-                const { people } = await getTree();
-                originalRoots = buildHierarchy(people);
+                const { people, roots: rootRows } = await getTree();
+                originalRoots = buildHierarchy(people, rootRows);
                 const updatedNode = findPersonNode(originalRoots, node.id);
 
                 // Re-render, preserving whatever highlight/focus state was active.
@@ -1544,7 +1739,8 @@
                 if (currentDetailsPersonId === null) return;
                 const node = findPersonNode(originalRoots, currentDetailsPersonId);
                 if (!node) return;
-                showPersonDetailsEdit(node);
+                if (node._isRoot) showRootDetailsEdit(node);
+                else showPersonDetailsEdit(node);
             });
         }
 
@@ -1574,8 +1770,8 @@
         // create/delete flows below (saveDetailsEdit has its own inline copy
         // of this same sequence since it also needs to keep the panel open).
         async function refreshTree() {
-            const { people } = await getTree();
-            originalRoots = buildHierarchy(people);
+            const { people, roots: rootRows } = await getTree();
+            originalRoots = buildHierarchy(people, rootRows);
             const highlightState = captureHighlightState();
             if (isFocusMode) {
                 const visibleIds = new Set(highlightState.keys());
@@ -1741,6 +1937,27 @@
             });
         }
 
+        const btnAddRoot = document.getElementById('btn-add-root');
+        if (btnAddRoot) {
+            btnAddRoot.addEventListener('click', async () => {
+                btnAddRoot.disabled = true;
+                try {
+                    const created = await createRoot({});
+                    await refreshTree();
+                    const node = findPersonNode(originalRoots, rootNodeId(created.id));
+                    if (node) {
+                        currentDetailsPersonId = Number(node.id);
+                        showRootDetailsEdit(node);
+                    }
+                } catch (err) {
+                    errorOverlay.classList.remove('hidden');
+                    errorText.textContent = 'Kök eklenemedi: ' + err.message;
+                } finally {
+                    btnAddRoot.disabled = false;
+                }
+            });
+        }
+
         // --- Image export of the currently displayed tree(s) ---
         // Exports whatever is currently rendered inside #tree-transform (the
         // full tree, or just the focused bloodline in focus mode — same as
@@ -1804,6 +2021,20 @@
 
             let details = {};
             try { details = JSON.parse(card.getAttribute('data-details') || '{}'); } catch (e) {}
+
+            // Family root: a diamond with its title centred.
+            if (card.getAttribute('data-root')) {
+                const cx = w / 2, cy = h / 2, r = 66;
+                const cs2 = getComputedStyle(card.querySelector('.root-diamond') || card);
+                const fill = cs2.backgroundColor && cs2.backgroundColor !== 'rgba(0, 0, 0, 0)' ? cs2.backgroundColor : '#475569';
+                let s = `<svg x="${x0}" y="${y0}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`;
+                s += `<polygon points="${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}" `
+                   + `fill="${svgEsc(fill)}" stroke="#334155" stroke-width="2"/>`;
+                s += `<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="12" font-weight="700" `
+                   + `fill="#ffffff" letter-spacing="0.5">${svgEsc((details.title || 'ROOT').toUpperCase())}</text>`;
+                s += `</svg>`;
+                return s;
+            }
             const attrs = details.attributes || {};
             const name = details.name || 'UNKNOWN';
             const surname = attrs.surname || '';
@@ -1962,15 +2193,22 @@ ${cardsInner}
             btnDeleteDetails.addEventListener('click', async () => {
                 if (currentDetailsPersonId === null) return;
                 const node = findPersonNode(originalRoots, currentDetailsPersonId);
-                const label = node ? `${node.name || ''} ${(node.attributes && node.attributes.surname) || ''}`.trim() : `#${currentDetailsPersonId}`;
-                if (!window.confirm(`"${label}" kişisini silmek istediğinize emin misiniz? Bu işlem, bu kişiyi ebeveyn/eş olarak referans alan bağlantıları da kaldırır.`)) {
+                const isRoot = node && node._isRoot;
+                const label = node
+                    ? (isRoot ? (node.title || 'ROOT') : `${node.name || ''} ${(node.attributes && node.attributes.surname) || ''}`.trim())
+                    : `#${currentDetailsPersonId}`;
+                const message = isRoot
+                    ? `"${label}" kökünü silmek istediğinize emin misiniz? Altındaki kişiler yeniden kendiliğinden kök olur.`
+                    : `"${label}" kişisini silmek istediğinize emin misiniz? Bu işlem, bu kişiyi ebeveyn/eş olarak referans alan bağlantıları da kaldırır.`;
+                if (!window.confirm(message)) {
                     return;
                 }
 
                 const idToDelete = currentDetailsPersonId;
                 btnDeleteDetails.disabled = true;
                 try {
-                    await deletePerson(idToDelete);
+                    if (isRoot) await deleteRoot(rootDbId(idToDelete));
+                    else await deletePerson(idToDelete);
                     await refreshTree();
                     closeDetailsPanel();
                 } catch (err) {
@@ -2025,7 +2263,8 @@ ${cardsInner}
                 if (detailsStr) {
                     try {
                         const details = JSON.parse(detailsStr);
-                        showPersonDetailsView(details);
+                        if (details.isRoot) showRootDetailsView(details);
+                        else showPersonDetailsView(details);
                     } catch (err) {
                         console.error("Failed to parse person details", err);
                     }
@@ -2273,7 +2512,7 @@ ${cardsInner}
                 if (detailsStr) {
                     try {
                         const details = JSON.parse(detailsStr);
-                        const searchableValues = [
+                        const searchableValues = details.isRoot ? [details.title] : [
                             details.name,
                             details.id,
                             ...(details.attributes ? Object.values(details.attributes) : [])

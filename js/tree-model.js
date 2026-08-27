@@ -70,9 +70,17 @@ function parseIds(value) {
     catch (e) { return [value]; }
 }
 
-// Transform flat person rows into the hierarchical format the layout and
-// rendering code expects.
-export function buildHierarchy(flatData) {
+// A root (a diamond family-origin marker) is a standalone hierarchy node, not
+// a person. Its DB id `r` becomes hierarchy/DOM node id `-r` so it never
+// collides with a (positive) person id while staying Number()-safe for the
+// connector code and `[data-id="-1"]` selectors.
+export const rootNodeId = (dbId) => -Math.abs(Number(dbId));
+export const isRootNodeId = (id) => Number(id) < 0;
+export const rootDbId = (id) => Math.abs(Number(id));
+
+// Transform flat person rows (+ standalone root rows) into the hierarchical
+// format the layout and rendering code expects.
+export function buildHierarchy(flatData, rootsData = []) {
     const nodeMap = new Map();
 
     // First pass: create node objects and map them
@@ -86,7 +94,14 @@ export function buildHierarchy(flatData) {
             _spouseIds: [],
             _visited: false,
             _addedAsChild: false,
-            _generation: null
+            _generation: null,
+            // The hierarchy id of the family root this person is a founding
+            // member of (negative), or null. Acts as an extra "parent" for
+            // generation counting and connector drawing, but is kept out of
+            // _parentIds so the edit form's parent pickers ignore it.
+            _rootParentId: (row.rootId === null || row.rootId === undefined)
+                ? null
+                : rootNodeId(row.rootId)
         };
 
         node._parentIds = parseIds(row.parentIds);
@@ -103,14 +118,38 @@ export function buildHierarchy(flatData) {
         nodeMap.set(Number(row.id), node);
     });
 
-    // Hızlı erişim için çocuk haritası oluşturma (O(1) lookup)
-    const childMap = new Map();
-    nodeMap.forEach(n => {
-        n._parentIds.forEach(pid => {
-            const pNum = Number(pid);
-            if (!childMap.has(pNum)) childMap.set(pNum, []);
-            childMap.get(pNum).push(n);
+    // Second pass: one standalone node per family root. It carries an editable
+    // title and a fixed generation (its own row); its founding members hang
+    // under it as children.
+    rootsData.forEach(r => {
+        const id = rootNodeId(r.id);
+        nodeMap.set(id, {
+            id,
+            _isRoot: true,
+            title: r.title || 'ROOT',
+            name: r.title || 'ROOT',
+            photoUrl: null,
+            attributes: {},
+            _parentIds: [],
+            _spouseIds: [],
+            _rootParentId: null,
+            _visited: false,
+            _addedAsChild: false,
+            _generation: Math.max(1, Number(r.generation) || 1)
         });
+    });
+
+    // Hızlı erişim için çocuk haritası oluşturma (O(1) lookup). Parent edges
+    // are real parent/child links plus each founding member -> their root.
+    const childMap = new Map();
+    const addChild = (parentId, childNode) => {
+        const pNum = Number(parentId);
+        if (!childMap.has(pNum)) childMap.set(pNum, []);
+        childMap.get(pNum).push(childNode);
+    };
+    nodeMap.forEach(n => {
+        n._parentIds.forEach(pid => addChild(pid, n));
+        if (n._rootParentId != null && nodeMap.has(n._rootParentId)) addChild(n._rootParentId, n);
     });
 
     // Kan Bağı Jenerasyon Hesabı (Kahn topolojik sıralaması, sadece ebeveyn/
@@ -130,10 +169,15 @@ export function buildHierarchy(flatData) {
     const remainingParents = new Map();
     const queue = [];
     nodeMap.forEach(node => {
-        const count = node._parentIds.filter(pid => nodeMap.has(Number(pid))).length;
+        let count = node._parentIds.filter(pid => nodeMap.has(Number(pid))).length;
+        // A founding member's root counts as a parent, so the member's
+        // generation is counted down from the root's fixed generation.
+        if (node._rootParentId != null && nodeMap.has(node._rootParentId)) count++;
         remainingParents.set(node.id, count);
         if (count === 0) {
-            node._generation = 1;
+            // Root nodes keep their configured generation; a parentless person
+            // with no root seeds the walk at generation 1.
+            if (!node._isRoot) node._generation = 1;
             queue.push(node);
         }
     });
@@ -179,7 +223,11 @@ export function buildHierarchy(flatData) {
         changed = false;
         iterations++;
         nodeMap.forEach(node => {
-            node._parentIds.forEach(pid => {
+            if (node._isRoot) return; // a root's generation is fixed by the user
+            const anchorIds = node._rootParentId != null
+                ? [...node._parentIds, node._rootParentId]
+                : node._parentIds;
+            anchorIds.forEach(pid => {
                 const parent = nodeMap.get(Number(pid));
                 if (parent) {
                     const desired = parent._generation + 1;
@@ -190,7 +238,11 @@ export function buildHierarchy(flatData) {
                 }
             });
             const hasOwnParents = node._parentIds.some(pid => nodeMap.has(Number(pid)));
-            if (!hasOwnParents) {
+            // A founding member is anchored to its root; a person whose own
+            // ancestry is recorded is anchored to it. Neither is dragged onto
+            // a spouse's (possibly much deeper) row.
+            const hasAnchor = hasOwnParents || (node._rootParentId != null && nodeMap.has(node._rootParentId));
+            if (!hasAnchor) {
                 node._spouseIds.forEach(sid => {
                     const spouse = nodeMap.get(Number(sid));
                     if (spouse && spouse._generation !== node._generation) {
@@ -203,7 +255,16 @@ export function buildHierarchy(flatData) {
     }
 
     const roots = [];
+    // Every standalone root node is an independent top-level tree, kept in the
+    // order the server returned them.
+    rootsData.forEach(r => {
+        const node = nodeMap.get(rootNodeId(r.id));
+        if (node) roots.push(node);
+    });
     nodeMap.forEach(node => {
+        if (node._isRoot) return; // already added above
+        // A founding member hangs under its diamond, not at top level.
+        if (node._rootParentId != null && nodeMap.has(node._rootParentId)) return;
         // Nodes with no parents, or whose parents don't exist in the dataset, are roots
         const hasExistingParent = node._parentIds.some(pid => nodeMap.has(Number(pid)));
         if (!hasExistingParent) {
@@ -232,6 +293,12 @@ export function buildHierarchy(flatData) {
             _parentIds: node._parentIds,
             _spouseIds: node._spouseIds,
             _generation: node._generation,
+            // Kept separate from _parentIds (edit-form parent pickers read that);
+            // the renderer folds it into data-parent-ids so the diamond->member
+            // connector draws.
+            _rootParentId: node._rootParentId,
+            _isRoot: !!node._isRoot,
+            title: node.title,
             name: node.name,
             photoUrl: node.photoUrl,
             attributes: { ...node.attributes },

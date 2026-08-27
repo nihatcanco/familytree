@@ -35,17 +35,62 @@ def get_connection():
     return conn
 
 
+def ensure_schema():
+    """Create tables added after the original data.sqlite was shipped.
+
+    A root is a standalone family-origin marker (a diamond in the UI): it has
+    an editable title and an integer generation, and every descendant
+    generation is counted from it. People are linked to a root via RootMembers.
+    """
+    conn = get_connection()
+    try:
+        # An earlier iteration shipped Roots as (id, personId, generation);
+        # the current model has no personId. Drop that shape if present.
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(Roots)")}
+        if "personId" in cols:
+            conn.execute("DROP TABLE Roots")
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS Roots (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT 'ROOT',
+                generation INT NOT NULL DEFAULT 1
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS RootMembers (
+                id INTEGER PRIMARY KEY,
+                rootId INT NOT NULL,
+                personId INT NOT NULL UNIQUE,
+                FOREIGN KEY (rootId) REFERENCES Roots(id) ON DELETE CASCADE,
+                FOREIGN KEY (personId) REFERENCES People(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def fetch_tree():
     conn = get_connection()
     try:
         people = [dict(row) for row in conn.execute("SELECT * FROM People")]
         spouses = list(conn.execute("SELECT * FROM Spouses"))
         parents = list(conn.execute("SELECT * FROM Parents"))
+        roots = [dict(row) for row in conn.execute("SELECT id, title, generation FROM Roots ORDER BY id")]
+        member_of = {row["personId"]: row["rootId"] for row in conn.execute("SELECT rootId, personId FROM RootMembers")}
     finally:
         conn.close()
 
     for person in people:
         pid = person["id"]
+        # Which family root (if any) this person is a founding member of.
+        # Generation flows down from that root — see js/tree-model.js.
+        person["rootId"] = member_of.get(pid)
         person["spouseIds"] = [
             (row["spouse2Id"] if row["spouse1Id"] == pid else row["spouse1Id"])
             for row in spouses
@@ -57,7 +102,7 @@ def fetch_tree():
             for parent_id in (row["parent1Id"], row["parent2Id"])
             if parent_id is not None
         ]
-    return people
+    return {"people": people, "roots": roots}
 
 
 def _ancestor_ids(conn, person_id, seen=None):
@@ -205,6 +250,98 @@ def _update_spouses(conn, person_id, spouse_ids):
             )
 
 
+def _validate_generation(value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("Jenerasyon bir tam sayı olmalıdır.")
+    if value < 1:
+        raise ValueError("Jenerasyon 1 veya daha büyük olmalıdır.")
+    return value
+
+
+def _root_dict(conn, root_id):
+    row = conn.execute("SELECT id, title, generation FROM Roots WHERE id = ?", (root_id,)).fetchone()
+    if row is None:
+        raise LookupError("Kök bulunamadı.")
+    members = [
+        r["personId"]
+        for r in conn.execute("SELECT personId FROM RootMembers WHERE rootId = ? ORDER BY personId", (root_id,))
+    ]
+    return {"id": row["id"], "title": row["title"], "generation": row["generation"], "memberIds": members}
+
+
+def _set_root_members(conn, root_id, member_ids):
+    if not isinstance(member_ids, list):
+        raise ValueError("Geçersiz kişi listesi.")
+    ids = []
+    for mid in member_ids:
+        try:
+            mid = int(mid)
+        except (TypeError, ValueError):
+            raise ValueError("Geçersiz kişi kimliği.")
+        if conn.execute("SELECT id FROM People WHERE id = ?", (mid,)).fetchone() is None:
+            raise ValueError(f"Kişi ({mid}) bulunamadı.")
+        if mid not in ids:
+            ids.append(mid)
+
+    # A person belongs to at most one root: clear this root's current members
+    # and any prior membership of the incoming people, then re-insert.
+    conn.execute("DELETE FROM RootMembers WHERE rootId = ?", (root_id,))
+    for mid in ids:
+        conn.execute("DELETE FROM RootMembers WHERE personId = ?", (mid,))
+        conn.execute("INSERT INTO RootMembers (rootId, personId) VALUES (?, ?)", (root_id, mid))
+
+
+def create_root(fields):
+    title = str(fields.get("title") or "ROOT").strip() or "ROOT"
+    generation = _validate_generation(fields.get("generation", 1))
+    member_ids = fields.get("memberIds")
+    conn = get_connection()
+    try:
+        cur = conn.execute("INSERT INTO Roots (title, generation) VALUES (?, ?)", (title, generation))
+        root_id = cur.lastrowid
+        if member_ids is not None:
+            _set_root_members(conn, root_id, member_ids)
+        conn.commit()
+        return _root_dict(conn, root_id)
+    finally:
+        conn.close()
+
+
+def update_root(root_id, fields):
+    conn = get_connection()
+    try:
+        if conn.execute("SELECT id FROM Roots WHERE id = ?", (root_id,)).fetchone() is None:
+            raise LookupError("Kök bulunamadı.")
+
+        if "title" in fields:
+            title = str(fields.get("title") or "ROOT").strip() or "ROOT"
+            conn.execute("UPDATE Roots SET title = ? WHERE id = ?", (title, root_id))
+        if "generation" in fields:
+            generation = _validate_generation(fields.get("generation"))
+            conn.execute("UPDATE Roots SET generation = ? WHERE id = ?", (generation, root_id))
+        if fields.get("memberIds") is not None:
+            _set_root_members(conn, root_id, fields["memberIds"])
+
+        conn.commit()
+        return _root_dict(conn, root_id)
+    finally:
+        conn.close()
+
+
+def delete_root(root_id):
+    conn = get_connection()
+    try:
+        if conn.execute("SELECT id FROM Roots WHERE id = ?", (root_id,)).fetchone() is None:
+            raise LookupError("Kök bulunamadı.")
+        conn.execute("DELETE FROM RootMembers WHERE rootId = ?", (root_id,))
+        conn.execute("DELETE FROM Roots WHERE id = ?", (root_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def create_person(fields):
     updates = {k: v for k, v in fields.items() if k in EDITABLE_FIELDS}
     name = str(updates.get("name") or "").strip()
@@ -239,6 +376,7 @@ def create_person(fields):
         created["parentIds"] = [pid for pid in (parents_row["parent1Id"], parents_row["parent2Id"]) if pid is not None] if parents_row else []
         spouse_rows = conn.execute("SELECT spouse1Id, spouse2Id FROM Spouses WHERE spouse1Id = ? OR spouse2Id = ?", (new_id, new_id)).fetchall()
         created["spouseIds"] = [(row["spouse2Id"] if row["spouse1Id"] == new_id else row["spouse1Id"]) for row in spouse_rows]
+        created["rootId"] = None
         return created
     finally:
         conn.close()
@@ -271,6 +409,7 @@ def delete_person(person_id):
 
         conn.execute("DELETE FROM Parents WHERE childId = ?", (person_id,))
         conn.execute("DELETE FROM Spouses WHERE spouse1Id = ? OR spouse2Id = ?", (person_id, person_id))
+        conn.execute("DELETE FROM RootMembers WHERE personId = ?", (person_id,))
         conn.execute("DELETE FROM People WHERE id = ?", (person_id,))
         conn.commit()
     finally:
@@ -313,6 +452,8 @@ def update_person(person_id, fields):
         updated["parentIds"] = [pid for pid in (parents_row["parent1Id"], parents_row["parent2Id"]) if pid is not None] if parents_row else []
         spouse_rows = conn.execute("SELECT spouse1Id, spouse2Id FROM Spouses WHERE spouse1Id = ? OR spouse2Id = ?", (person_id, person_id)).fetchall()
         updated["spouseIds"] = [(row["spouse2Id"] if row["spouse1Id"] == person_id else row["spouse1Id"]) for row in spouse_rows]
+        rm = conn.execute("SELECT rootId FROM RootMembers WHERE personId = ?", (person_id,)).fetchone()
+        updated["rootId"] = rm["rootId"] if rm else None
         return updated
     finally:
         conn.close()
@@ -349,62 +490,63 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/tree":
             try:
-                self._send_json(200, {"people": fetch_tree()})
+                self._send_json(200, fetch_tree())
             except Exception as exc:
                 self._send_json(500, {"error": str(exc)})
             return
         self._serve_static(path)
 
-    def do_PATCH(self):
-        match = re.fullmatch(r"/api/people/(\d+)", urlparse(self.path).path)
-        if not match:
-            self._send_json(404, {"error": "Not found"})
-            return
-
-        person_id = int(match.group(1))
+    def _read_body(self):
         length = int(self.headers.get("Content-Length", 0) or 0)
+        return json.loads(self.rfile.read(length) or b"{}")
+
+    def _dispatch(self, handler):
+        """Run handler(), returning its value as JSON and mapping errors."""
         try:
-            fields = json.loads(self.rfile.read(length) or b"{}")
-            updated = update_person(person_id, fields)
-            self._send_json(200, updated)
+            status, payload = handler()
+            self._send_json(status, payload)
         except LookupError as exc:
             self._send_json(404, {"error": str(exc)})
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
+
+    def do_PATCH(self):
+        path = urlparse(self.path).path
+        person = re.fullmatch(r"/api/people/(\d+)", path)
+        root = re.fullmatch(r"/api/roots/(\d+)", path)
+        if person:
+            self._dispatch(lambda: (200, update_person(int(person.group(1)), self._read_body())))
+        elif root:
+            self._dispatch(lambda: (200, update_root(int(root.group(1)), self._read_body())))
+        else:
+            self._send_json(404, {"error": "Not found"})
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/people":
+        path = urlparse(self.path).path
+        if path == "/api/people":
+            self._dispatch(lambda: (201, create_person(self._read_body())))
+        elif path == "/api/roots":
+            self._dispatch(lambda: (201, create_root(self._read_body())))
+        else:
             self._send_json(404, {"error": "Not found"})
-            return
-
-        length = int(self.headers.get("Content-Length", 0) or 0)
-        try:
-            fields = json.loads(self.rfile.read(length) or b"{}")
-            created = create_person(fields)
-            self._send_json(201, created)
-        except (ValueError, json.JSONDecodeError) as exc:
-            self._send_json(400, {"error": str(exc)})
-        except Exception as exc:
-            self._send_json(500, {"error": str(exc)})
 
     def do_DELETE(self):
-        match = re.fullmatch(r"/api/people/(\d+)", urlparse(self.path).path)
-        if not match:
-            self._send_json(404, {"error": "Not found"})
-            return
+        path = urlparse(self.path).path
+        person = re.fullmatch(r"/api/people/(\d+)", path)
+        root = re.fullmatch(r"/api/roots/(\d+)", path)
 
-        person_id = int(match.group(1))
-        try:
-            delete_person(person_id)
-            self._send_json(200, {"success": True})
-        except LookupError as exc:
-            self._send_json(404, {"error": str(exc)})
-        except (ValueError, json.JSONDecodeError) as exc:
-            self._send_json(400, {"error": str(exc)})
-        except Exception as exc:
-            self._send_json(500, {"error": str(exc)})
+        def delete(fn, obj_id):
+            fn(obj_id)
+            return 200, {"success": True}
+
+        if person:
+            self._dispatch(lambda: delete(delete_person, int(person.group(1))))
+        elif root:
+            self._dispatch(lambda: delete(delete_root, int(root.group(1))))
+        else:
+            self._send_json(404, {"error": "Not found"})
 
     def log_message(self, format_str, *args):
         sys.stderr.write(f"{self.address_string()} - {format_str % args}\n")
@@ -415,6 +557,8 @@ def main():
     if not DB_PATH.is_file():
         print(f"data.sqlite not found at {DB_PATH}", file=sys.stderr)
         sys.exit(1)
+
+    ensure_schema()
 
     server = ThreadingHTTPServer(("localhost", port), Handler)
     print(f"Family tree server running at http://localhost:{port}")
