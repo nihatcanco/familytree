@@ -2435,14 +2435,18 @@ ${cardsInner}
                     }
                 }
                 
-                // Recursive function to highlight descendants
+                // Recursive function to highlight descendants. Collects every
+                // visited descendant card so spouse-highlighting can be limited
+                // to the clicked card + its descendants (see below).
+                const descendantCards = new Set();
                 function highlightDescendants(currentCard) {
                     const currentId = currentCard.getAttribute('data-id');
                     if (!currentId || !childMap[currentId]) return;
-                    
+
                     childMap[currentId].forEach(childCard => {
                         if (!childCard.classList.contains('highlighted-gen')) {
                             applyHighlightGen(childCard);
+                            descendantCards.add(childCard);
                             highlightDescendants(childCard);
                         }
                     });
@@ -2472,8 +2476,13 @@ ${cardsInner}
                 highlightAncestors(card);
                 highlightDescendants(card);
                 
-                // Highlight spouses for the clicked card AND all its highlighted ancestors/descendants
-                document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen').forEach(hCard => {
+                // Highlight spouses for the clicked card and its descendants only.
+                // Ancestors are deliberately skipped: a direct parent is already
+                // highlighted via the ancestor walk, and highlighting a parent's
+                // *other* spouse (e.g. a second marriage) would wrongly flag a
+                // non-parent as part of the selected child's bloodline.
+                highlightSpouses(card);
+                descendantCards.forEach(hCard => {
                     highlightSpouses(hCard);
                 });
                 // Bloodline-path glow is drawn as part of the SVG connector lines
