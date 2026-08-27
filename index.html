@@ -604,8 +604,90 @@
         const LINE_BUMP_RADIUS = 7;
         const LINE_BUMP_EPS = 3; // ignore near-endpoint touches — those are shared corners, not crossings
 
+        const COLLINEAR_AXIS_EPS = 2;      // coords this close count as the same gridline
+        const COLLINEAR_MIN_OVERLAP = 8;   // shorter shared runs aren't worth splitting
+        const COLLINEAR_SEP = 5;           // perpendicular gap between the separated parallel lines
+
+        // Pull apart segments from DIFFERENT connector lines that run collinear
+        // and overlap — two verticals sharing an X, or two horizontals sharing a
+        // Y — since drawn on top of each other they read as a single stroke and
+        // hide that two distinct edges are there. Lines of the SAME color are
+        // left stacked: those are the shared sibling "trunk" and are meant to
+        // merge (see queueCrossLink's comment). Mutates lineSegs in place,
+        // translating a whole segment perpendicular and dragging its elbow
+        // neighbours' shared endpoints along, so every path stays connected and
+        // strictly orthogonal.
+        function separateCollinearOverlaps(lines, lineSegs) {
+            const shiftSeg = (segs, si, dx, dy) => {
+                segs[si].x1 += dx; segs[si].y1 += dy;
+                segs[si].x2 += dx; segs[si].y2 += dy;
+                if (si > 0) { segs[si - 1].x2 += dx; segs[si - 1].y2 += dy; }
+                if (si < segs.length - 1) { segs[si + 1].x1 += dx; segs[si + 1].y1 += dy; }
+            };
+
+            ['h', 'v'].forEach(orientation => {
+                const items = [];
+                for (let li = 0; li < lineSegs.length; li++) {
+                    for (let si = 0; si < lineSegs[li].length; si++) {
+                        const s = lineSegs[li][si];
+                        if (s.orientation !== orientation) continue;
+                        const axis = orientation === 'h' ? s.y1 : s.x1;
+                        const lo = orientation === 'h' ? Math.min(s.x1, s.x2) : Math.min(s.y1, s.y2);
+                        const hi = orientation === 'h' ? Math.max(s.x1, s.x2) : Math.max(s.y1, s.y2);
+                        if (hi - lo < COLLINEAR_MIN_OVERLAP) continue;
+                        items.push({ li, si, axis, lo, hi });
+                    }
+                }
+                items.sort((a, b) => a.axis - b.axis || a.lo - b.lo);
+
+                let bucketStart = 0;
+                const flushBucket = (end) => {
+                    const bucket = items.slice(bucketStart, end);
+                    bucketStart = end;
+                    if (bucket.length < 2) return;
+                    let cluster = [bucket[0]];
+                    let clusterMax = bucket[0].hi;
+                    const flushCluster = () => {
+                        const byLine = new Map();
+                        cluster.forEach(it => {
+                            if (!byLine.has(it.li)) byLine.set(it.li, []);
+                            byLine.get(it.li).push(it);
+                        });
+                        if (byLine.size < 2) return;
+                        const lineIds = [...byLine.keys()].sort((a, b) => a - b);
+                        const colors = new Set(lineIds.map(id => lines[id].color));
+                        if (colors.size < 2) return; // one family: leave the trunk stacked
+                        lineIds.forEach((id, k) => {
+                            if (k === 0) return; // anchor the lowest-index line, stagger the rest
+                            const step = Math.ceil(k / 2) * COLLINEAR_SEP * (k % 2 === 1 ? 1 : -1);
+                            byLine.get(id).forEach(it => {
+                                if (orientation === 'h') shiftSeg(lineSegs[id], it.si, 0, step);
+                                else shiftSeg(lineSegs[id], it.si, step, 0);
+                            });
+                        });
+                    };
+                    for (let i = 1; i < bucket.length; i++) {
+                        if (bucket[i].lo <= clusterMax - COLLINEAR_MIN_OVERLAP) {
+                            cluster.push(bucket[i]);
+                            clusterMax = Math.max(clusterMax, bucket[i].hi);
+                        } else {
+                            flushCluster();
+                            cluster = [bucket[i]];
+                            clusterMax = bucket[i].hi;
+                        }
+                    }
+                    flushCluster();
+                };
+                for (let i = 1; i < items.length; i++) {
+                    if (items[i].axis - items[bucketStart].axis > COLLINEAR_AXIS_EPS) flushBucket(i);
+                }
+                flushBucket(items.length);
+            });
+        }
+
         function renderQueuedLinks(svg, lines) {
             const lineSegs = lines.map(line => segmentsFromPoints(pointsForLineDef(line)));
+            separateCollinearOverlaps(lines, lineSegs);
             const crossings = lineSegs.map(segs => segs.map(() => []));
 
             for (let i = 0; i < lineSegs.length; i++) {
