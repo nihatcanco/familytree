@@ -52,10 +52,12 @@
             box-shadow: 0 0 15px var(--search-color, rgba(245, 158, 11, 0.5));
         }
 
-        /* Glowing bloodline-path lines, drawn as SVG paths */
+        /* Highlighted bloodline-path lines, drawn as SVG paths. The selected
+           person's vertical relatives' connectors are emphasised with a
+           heavier stroke and a soft glow, but keep their family's own colour. */
         .svg-glow-line {
-            stroke: #1e293b !important;
-            filter: drop-shadow(0 0 3px rgba(30, 41, 59, 0.4));
+            stroke-width: 4px !important;
+            filter: drop-shadow(0 0 4px rgba(15, 23, 42, 0.45));
         }
 
         /* Highlighted Spouse Styling */
@@ -655,10 +657,21 @@
                         });
                         if (byLine.size < 2) return;
                         const lineIds = [...byLine.keys()].sort((a, b) => a - b);
-                        const colors = new Set(lineIds.map(id => lines[id].color));
-                        if (colors.size < 2) return; // one family: leave the trunk stacked
-                        lineIds.forEach((id, k) => {
-                            if (k === 0) return; // anchor the lowest-index line, stagger the rest
+                        // Stagger by distinct FAMILY colour, not by distinct line.
+                        // All the sibling connectors hanging off one parent share
+                        // a colour and are meant to sit on one gridline (one flat
+                        // "bus" the children branch from) — moving them apart
+                        // individually is exactly the bug this must avoid. Only
+                        // genuinely different families get pried off each other.
+                        const colorIndex = new Map();
+                        lineIds.forEach(id => {
+                            const c = lines[id].color;
+                            if (!colorIndex.has(c)) colorIndex.set(c, colorIndex.size);
+                        });
+                        if (colorIndex.size < 2) return; // one family: leave the trunk stacked
+                        lineIds.forEach(id => {
+                            const k = colorIndex.get(lines[id].color);
+                            if (k === 0) return; // anchor the first family, stagger the rest
                             const step = Math.ceil(k / 2) * COLLINEAR_SEP * (k % 2 === 1 ? 1 : -1);
                             byLine.get(id).forEach(it => {
                                 if (orientation === 'h') shiftSeg(lineSegs[id], it.si, 0, step);
@@ -811,6 +824,24 @@
                 x: (rect.left - treeRect.left) / currentZoom + rect.width / 2 / currentZoom,
                 y: (rect.top - treeRect.top) / currentZoom + rect.height / 2 / currentZoom
             });
+            // Left / right edge x of a card in local (pre-zoom) space, so a
+            // marriage line can attach to the near side-center of each card
+            // instead of running out of the card's hidden middle.
+            const getEdgeX = (rect) => ({
+                left: (rect.left - treeRect.left) / currentZoom,
+                right: (rect.right - treeRect.left) / currentZoom
+            });
+            // The x where a spouse line should touch each card: the two facing
+            // edges (left card's right edge, right card's left edge).
+            const marriageEndpoints = (rectA, rectB) => {
+                const cAx = getCenter(rectA).x;
+                const cBx = getCenter(rectB).x;
+                const eA = getEdgeX(rectA);
+                const eB = getEdgeX(rectB);
+                return cAx <= cBx
+                    ? { ax: eA.right, bx: eB.left }
+                    : { ax: eA.left, bx: eB.right };
+            };
             // Vertical center of a card's fixed-height header (portrait + name
             // + ID) rather than the whole card — the card's overall height
             // varies with how much attribute/Note text it has below the
@@ -858,12 +889,12 @@
                 const anchorRect = nodeRects[anchorKey];
                 if (!anchorRect || anchorRect.width === 0) return;
 
-                const members = [{ id: anchorKey, x: getCenter(anchorRect).x }];
+                const members = [{ id: anchorKey, x: getCenter(anchorRect).x, rect: anchorRect }];
                 spouseIds.forEach(sId => {
                     const sKey = String(sId);
                     const sRect = nodeRects[sKey];
                     if (!sRect || sRect.width === 0) return;
-                    members.push({ id: sKey, x: getCenter(sRect).x });
+                    members.push({ id: sKey, x: getCenter(sRect).x, rect: sRect });
                 });
                 members.sort((a, b) => a.x - b.x);
 
@@ -880,7 +911,8 @@
                     const a = members[i], b = members[i + 1];
                     const aCard = nodeElements[a.id], bCard = nodeElements[b.id];
                     const isGlowing = isGlowCard(aCard) && isGlowCard(bCard);
-                    queueCrossLink(pendingLines, a.x, anchorHeaderY, b.x, anchorHeaderY, 'spouse', lineColor, null, isGlowing, lineDash);
+                    const { ax, bx } = marriageEndpoints(a.rect, b.rect);
+                    queueCrossLink(pendingLines, ax, anchorHeaderY, bx, anchorHeaderY, 'spouse', lineColor, null, isGlowing, lineDash);
                 }
             });
 
@@ -905,7 +937,6 @@
 
                         const sRect = nodeRects[sId];
                         if (!sRect || sRect.width === 0 || sRect.height === 0) return;
-                        const sCenter = getCenter(sRect);
 
                         const sharedY = getMarriageLineY(id, sId);
                         const myLineY = sharedY !== null ? sharedY : getHeaderCenterY(id);
@@ -914,7 +945,10 @@
                         const lineColor = personRootColor.get(Number(id)) || '#94a3b8';
                         const lineDash = personRootDash.get(Number(id)) || '';
                         const isGlowing = isGlowCard(card) && isGlowCard(spouseCard);
-                        queueCrossLink(pendingLines, center.x, myLineY, sCenter.x, spouseLineY, 'spouse', lineColor, null, isGlowing, lineDash);
+                        // Attach to the facing side-center of each card, not the
+                        // (card-covered) centers.
+                        const { ax, bx } = marriageEndpoints(cardRect, sRect);
+                        queueCrossLink(pendingLines, ax, myLineY, bx, spouseLineY, 'spouse', lineColor, null, isGlowing, lineDash);
                     });
                 }
 
@@ -2242,7 +2276,7 @@
                 const svg =
 `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${dispW}" height="${dispH}" viewBox="0 0 ${contentW} ${contentH}" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">
-<style>.svg-glow-line{stroke:#1e293b}</style>
+<style>.svg-glow-line{stroke-width:4}</style>
 <rect x="0" y="0" width="${contentW}" height="${contentH}" fill="#f8fafc"/>
 <g transform="translate(${dx} ${dy})">
 <g fill="none" stroke-width="2" stroke-linecap="round">
