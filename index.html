@@ -128,9 +128,15 @@
         </div>
 
         <!-- Add Person -->
-        <button id="btn-add-person" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-6 shrink-0 p-2 text-sm font-medium" title="Kişi Ekle">
+        <button id="btn-add-person" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-2 shrink-0 p-2 text-sm font-medium" title="Kişi Ekle">
             <i data-lucide="user-plus" class="w-5 h-5"></i>
             <span>Kişi Ekle</span>
+        </button>
+
+        <!-- Export currently displayed tree(s) as a single vector image -->
+        <button id="btn-export-png" class="flex items-center justify-center gap-2 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer mb-6 shrink-0 p-2 text-sm font-medium disabled:opacity-60 disabled:cursor-wait" title="Görüntülenen ağac(lar)ı tek bir SVG görüntü olarak indir — her yakınlaştırma seviyesinde net kalır">
+            <i data-lucide="download" class="w-5 h-5"></i>
+            <span>Görüntü İndir</span>
         </button>
 
         <!-- Person Details Panel -->
@@ -232,6 +238,7 @@
         const btnEditDetails = document.getElementById('btn-edit-details');
         const btnDeleteDetails = document.getElementById('btn-delete-details');
         const btnAddPerson = document.getElementById('btn-add-person');
+        const btnExportPng = document.getElementById('btn-export-png');
 
         const generationLegend = document.getElementById('generation-legend');
         const legendList = document.getElementById('legend-list');
@@ -1719,6 +1726,223 @@
             btnAddPerson.addEventListener('click', () => {
                 showPersonCreateForm();
             });
+        }
+
+        // --- Image export of the currently displayed tree(s) ---
+        // Exports whatever is currently rendered inside #tree-transform (the
+        // full tree, or just the focused bloodline in focus mode — same as
+        // what's on screen) as ONE self-contained SVG file.
+        //
+        // Vector SVG rather than PNG on purpose: the full tree can be 100k+ px
+        // wide, well past the browser <canvas> ceiling (65535 px/side, ~268M px
+        // total), so any single raster image of it has to be scaled down — which
+        // is exactly what turned the card text to mush. An SVG has no size
+        // ceiling and stays razor-sharp at every zoom level.
+        //
+        // The cards are redrawn from scratch as plain SVG shapes + <text> (not
+        // an HTML <foreignObject> snapshot) so the file renders identically in
+        // every viewer — browsers, Preview/Quick Look, Illustrator, Inkscape.
+        // <foreignObject> would be simpler but Safari/Preview render it blank.
+
+        function triggerDownload(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 20000);
+        }
+
+        function svgEsc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // Greedy word-wrap to a character budget, hard-breaking any single word
+        // that's longer than the line.
+        function wrapToLines(text, maxChars) {
+            const out = [];
+            let cur = '';
+            for (const word of String(text).split(/\s+/).filter(Boolean)) {
+                let w = word;
+                while (w.length > maxChars) {
+                    if (cur) { out.push(cur); cur = ''; }
+                    out.push(w.slice(0, maxChars));
+                    w = w.slice(maxChars);
+                }
+                if (!cur) cur = w;
+                else if ((cur + ' ' + w).length <= maxChars) cur += ' ' + w;
+                else { out.push(cur); cur = w; }
+            }
+            if (cur) out.push(cur);
+            return out;
+        }
+
+        // One person card as an SVG fragment, positioned at its real layout
+        // coordinates. Uses a nested <svg> so any overflowing text is clipped to
+        // the card box, and picks up the live border colour so an active
+        // highlight/bloodline selection is reflected in the export.
+        function cardToSvgFragment(card) {
+            const x0 = card.offsetLeft, y0 = card.offsetTop;
+            const w = card.offsetWidth, h = card.offsetHeight;
+
+            let details = {};
+            try { details = JSON.parse(card.getAttribute('data-details') || '{}'); } catch (e) {}
+            const attrs = details.attributes || {};
+            const name = details.name || 'UNKNOWN';
+            const surname = attrs.surname || '';
+            const gender = attrs.gender || '';
+            const id = details.id != null ? details.id : '';
+
+            const cs = getComputedStyle(card);
+            const stroke = cs.borderTopColor || '#cbd5e1';
+            const strokeW = parseFloat(cs.borderTopWidth) || 2;
+            const radius = parseFloat(cs.borderTopLeftRadius) || 12;
+
+            let s = `<svg x="${x0}" y="${y0}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`;
+            s += `<rect x="${strokeW / 2}" y="${strokeW / 2}" width="${w - strokeW}" height="${h - strokeW}" `
+               + `rx="${radius}" fill="#ffffff" stroke="${svgEsc(stroke)}" stroke-width="${strokeW}"/>`;
+
+            const cx = w / 2, pcy = 16 + 32; // p-4 padding + 32px portrait radius
+            s += `<circle cx="${cx}" cy="${pcy}" r="32" fill="#f8fafc" stroke="#f1f5f9" stroke-width="2"/>`;
+            s += `<circle cx="${cx}" cy="${pcy - 7}" r="8.5" fill="none" stroke="#cbd5e1" stroke-width="2.5"/>`;
+            s += `<path d="M ${cx - 13} ${pcy + 17} a 13 11 0 0 1 26 0" fill="none" stroke="#cbd5e1" stroke-width="2.5"/>`;
+
+            let ty = pcy + 32 + 22;
+            s += `<text x="${cx}" y="${ty}" text-anchor="middle" font-size="18" font-weight="700" fill="#0f172a">${svgEsc(name)}</text>`;
+            if (surname) {
+                ty += 20;
+                s += `<text x="${cx}" y="${ty}" text-anchor="middle" font-size="15" font-weight="600" fill="#334155">${svgEsc(surname)}</text>`;
+            }
+            ty += 15;
+            const gsym = gender === 'Male' ? '♂ ' : gender === 'Female' ? '♀ ' : '';
+            const gcol = gender === 'Male' ? '#38bdf8' : gender === 'Female' ? '#fb7185' : '#94a3b8';
+            s += `<text x="${cx}" y="${ty}" text-anchor="middle" font-size="10" `
+               + `font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#94a3b8">`
+               + `<tspan fill="${gcol}">${gsym}</tspan>ID: ${svgEsc(id)}</text>`;
+            ty += 14;
+
+            const pad = 16;
+            for (const key of Object.keys(attrs).filter(k => k !== 'surname' && k !== 'gender')) {
+                const label = key.charAt(0).toLocaleUpperCase('tr') + key.slice(1);
+                const isNote = key === 'note';
+                const lines = wrapToLines(`${label}: ${attrs[key]}`, 30);
+                const lh = 13;
+                const boxH = lines.length * lh + 7;
+                if (isNote) {
+                    s += `<rect x="${pad - 6}" y="${ty}" width="${w - 2 * (pad - 6)}" height="${boxH}" `
+                       + `rx="5" fill="#fffbeb" stroke="#fef3c7"/>`;
+                }
+                lines.forEach((ln, i) => {
+                    s += `<text x="${pad}" y="${ty + 11 + i * lh}" font-size="11" fill="#475569">${svgEsc(ln)}</text>`;
+                });
+                ty += boxH + 4;
+            }
+
+            s += `</svg>`;
+            return s;
+        }
+
+        async function exportTreeImage() {
+            if (!treeTransform.querySelector('.tree-node-card')) return; // nothing rendered yet
+
+            const originalBtnHTML = btnExportPng.innerHTML;
+            btnExportPng.disabled = true;
+            btnExportPng.innerHTML = '<i data-lucide="loader" class="w-5 h-5 animate-spin"></i><span>Hazırlanıyor…</span>';
+            lucide.createIcons();
+
+            // Snapshot view state, then normalize to scale 1 so the connector
+            // coordinates (computed against currentZoom) match the card layout.
+            const prevZoom = currentZoom;
+            const prevScrollLeft = scrollContainer.scrollLeft;
+            const prevScrollTop = scrollContainer.scrollTop;
+            currentZoom = 1;
+            updateZoomStyle();
+            drawCrossTreeLinks();
+
+            try {
+                await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+                const cards = [...treeRoot.querySelectorAll('.tree-node-card[data-id]')];
+
+                const p2 = n => String(n).padStart(2, '0');
+                const now = new Date();
+                const stamp = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}`
+                    + `-${p2(now.getHours())}-${p2(now.getMinutes())}-${p2(now.getSeconds())}`;
+                const baseName = `soyagaci-${stamp}-${cards.length}kisi`;
+
+                // Tight content bounding box — the tree canvas has large empty
+                // margins (a lone gen-1 card way off-centre, etc.), and an image
+                // viewer opening a 100k-px-wide file lands on that emptiness and
+                // looks blank. Trim to what's actually drawn and shift it to the
+                // origin. Connector lines run between cards so the card box
+                // covers them; a small pad absorbs stroke width and marriage
+                // lines that reach a hair past a card edge.
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                for (const card of cards) {
+                    const x = card.offsetLeft, y = card.offsetTop;
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x + card.offsetWidth);
+                    maxY = Math.max(maxY, y + card.offsetHeight);
+                }
+                const pad = 48;
+                const contentW = Math.max(1, Math.ceil(maxX - minX + pad * 2));
+                const contentH = Math.max(1, Math.ceil(maxY - minY + pad * 2));
+                const dx = pad - minX, dy = pad - minY;
+
+                // Cap the file's *declared* pixel size so viewers that rasterise
+                // SVG (Preview, Quick Look, Finder) fit the whole tree on screen
+                // instead of showing a corner. The viewBox stays full-resolution,
+                // so browsers / Illustrator / Inkscape still zoom in perfectly
+                // sharp — vector has no real detail limit here.
+                const MAX_DISPLAY = 8000;
+                const dispScale = Math.min(1, MAX_DISPLAY / Math.max(contentW, contentH));
+                const dispW = Math.max(1, Math.round(contentW * dispScale));
+                const dispH = Math.max(1, Math.round(contentH * dispScale));
+
+                // Connector layer: already SVG <path>s in tree-transform
+                // coordinates, so copy the markup straight across.
+                const connectorInner = document.getElementById('cross-tree-links').innerHTML;
+
+                let cardsInner = '';
+                for (const card of cards) cardsInner += cardToSvgFragment(card);
+
+                const svg =
+`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${dispW}" height="${dispH}" viewBox="0 0 ${contentW} ${contentH}" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">
+<style>.svg-glow-line{stroke:#1e293b}</style>
+<rect x="0" y="0" width="${contentW}" height="${contentH}" fill="#f8fafc"/>
+<g transform="translate(${dx} ${dy})">
+<g fill="none" stroke-width="2" stroke-linecap="round">
+${connectorInner}
+</g>
+${cardsInner}
+</g>
+</svg>`;
+
+                triggerDownload(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), `${baseName}.svg`);
+            } catch (err) {
+                errorText.textContent = 'Görüntü oluşturulamadı: ' + err.message;
+                errorOverlay.classList.remove('hidden');
+            } finally {
+                currentZoom = prevZoom;
+                updateZoomStyle();
+                scrollContainer.scrollLeft = prevScrollLeft;
+                scrollContainer.scrollTop = prevScrollTop;
+                drawCrossTreeLinks();
+                drawMinimap();
+                btnExportPng.disabled = false;
+                btnExportPng.innerHTML = originalBtnHTML;
+                lucide.createIcons();
+            }
+        }
+
+        if (btnExportPng) {
+            btnExportPng.addEventListener('click', exportTreeImage);
         }
 
         if (btnDeleteDetails) {
