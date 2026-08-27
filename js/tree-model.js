@@ -22,36 +22,42 @@ export const ROW_GAP = 70;      // vertical gap between generation rows
 //
 // There are usually far more root trees than colors, so color alone repeats
 // and two unrelated families end up looking identical. Each root instead
-// gets a (color, stroke-pattern) pair: the color cycles every 9 roots, and
-// every full cycle bumps to the next dash pattern. 9 colors x 5 patterns =
-// 45 visually distinct family line styles before anything repeats.
+// gets a (color, stroke-pattern) pair. Within one cycle of 9 roots the
+// colors are strongly separated hues; each new cycle both rotates the
+// color order (so root 10 is not just "root 1 with dashes") and switches
+// to the next, visually louder dash pattern. 9 colors x 5 patterns = 45
+// obviously distinct family line styles before anything repeats.
 const treeLineColors = [
-    '#64748b', // 1: Arduvaz (Default)
-    '#78716c', // 2: Taş / Sıcak Gri (Stone 500)
-    '#0f766e', // 3: Koyu Turkuaz (Teal 700)
-    '#9f1239', // 4: Koyu Gül / Bordo (Rose 800)
-    '#4338ca', // 5: Koyu İndigo (Indigo 700)
-    '#4d7c0f', // 6: Koyu Zeytin Yeşili (Lime 700)
-    '#a21caf', // 7: Koyu Eflatun (Fuchsia 700)
-    '#b45309', // 8: Koyu Kehribar / Kahve (Amber 700)
-    '#334155'  // 9: Koyu Arduvaz (Slate 700)
+    '#334155', // 1: Arduvaz — near-black, calm (the dominant main tree)
+    '#e11d48', // 2: Kırmızı / Gül (Rose 600)
+    '#2563eb', // 3: Mavi (Blue 600)
+    '#059669', // 4: Yeşil (Emerald 600)
+    '#ea580c', // 5: Turuncu (Orange 600)
+    '#9333ea', // 6: Mor (Purple 600)
+    '#0891b2', // 7: Turkuaz (Cyan 600)
+    '#c026d3', // 8: Macenta (Fuchsia 600)
+    '#a16207'  // 9: Kahve / Hardal (Yellow 700)
 ];
 
-// SVG stroke-dasharray values, tuned for a 2px stroke. '' == solid.
+// SVG stroke-dasharray values. '' == solid. Kept coarse and far apart so
+// the pattern is readable even on short connector segments.
 const treeLineDashes = [
     '',              // solid
-    '7 5',           // dashed
-    '1.5 5',         // dotted
-    '11 5 1.5 5',    // dash-dot
-    '4 4'            // fine dash
+    '14 8',          // long dash
+    '2 7',           // dotted
+    '18 7 2 7',      // dash-dot
+    '7 7'            // even dash
 ];
 
 // Style for the i-th independent root tree.
 export function treeLineStyle(i) {
-    return {
-        color: treeLineColors[i % treeLineColors.length],
-        dash: treeLineDashes[Math.floor(i / treeLineColors.length) % treeLineDashes.length]
-    };
+    const n = treeLineColors.length;
+    const cycle = Math.floor(i / n);
+    // 4 is coprime with 9, so rotating by 4*cycle still visits every color
+    // once per cycle while making consecutive cycles look different.
+    const color = treeLineColors[(i + cycle * 4) % n];
+    const dash = treeLineDashes[cycle % treeLineDashes.length];
+    return { color, dash };
 }
 
 // Utility: Parse ID lists safely (accepts an array, a JSON-array string, or

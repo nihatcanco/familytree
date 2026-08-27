@@ -591,11 +591,18 @@
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 path.setAttribute('d', d.trim());
                 path.setAttribute('stroke', line.color);
-                path.setAttribute('stroke-width', '2');
                 path.setAttribute('fill', 'none');
                 // Per-family dash pattern (see treeLineStyle). Dropped on a
                 // highlighted bloodline — that path reads best as one solid glow.
-                if (line.dash && !line.isGlowing) path.setAttribute('stroke-dasharray', line.dash);
+                // Dashed families are drawn a touch heavier with round caps so
+                // the pattern (and especially the dots) stays obvious.
+                if (line.dash && !line.isGlowing) {
+                    path.setAttribute('stroke-width', '2.5');
+                    path.setAttribute('stroke-dasharray', line.dash);
+                    path.setAttribute('stroke-linecap', 'round');
+                } else {
+                    path.setAttribute('stroke-width', '2');
+                }
                 if (line.isGlowing) path.classList.add('svg-glow-line');
                 svg.appendChild(path);
             });
