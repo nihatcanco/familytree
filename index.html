@@ -701,6 +701,17 @@
         function renderQueuedLinks(svg, lines) {
             const lineSegs = lines.map(line => segmentsFromPoints(pointsForLineDef(line)));
             separateCollinearOverlaps(lines, lineSegs);
+            // Snap every endpoint to whole pixels. Card-header-centre math
+            // yields half-pixel Y values, and a 2px stroke on a *.5 coordinate
+            // straddles two rows of pixels — it renders as a soft, ~1px-tall
+            // blur. Where such a blurry horizontal meets a crisp vertical the
+            // eye reads the fuzz as a little diagonal kink in the line. Rounding
+            // is uniform, so shared segment endpoints stay coincident (lines
+            // remain connected and strictly orthogonal).
+            lineSegs.forEach(segs => segs.forEach(seg => {
+                seg.x1 = Math.round(seg.x1); seg.y1 = Math.round(seg.y1);
+                seg.x2 = Math.round(seg.x2); seg.y2 = Math.round(seg.y2);
+            }));
             const crossings = lineSegs.map(segs => segs.map(() => []));
 
             for (let i = 0; i < lineSegs.length; i++) {
