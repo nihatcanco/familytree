@@ -68,6 +68,11 @@
 
     <!-- Main Tree Content -->
     <div class="flex-1 relative h-full overflow-hidden">
+        <!-- Displayed people count -->
+        <div id="people-count" class="absolute top-4 left-4 z-30 bg-white/95 backdrop-blur text-slate-600 text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-200 pointer-events-none">
+            0 kişi
+        </div>
+
         <!-- Error Overlay -->
         <div id="error-overlay" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-red-50 text-red-600 px-6 py-4 rounded-xl shadow-lg border border-red-200 flex items-center gap-3 max-w-2xl">
             <i data-lucide="alert-circle" class="w-5 h-5 flex-shrink-0"></i>
@@ -455,6 +460,8 @@
             spouseAnchorId = layout.spouseAnchorId;
 
             const persons = collectAllPersons(roots);
+            const peopleCountEl = document.getElementById('people-count');
+            if (peopleCountEl) peopleCountEl.textContent = `${persons.length} kişi`;
             let html = '';
             persons.forEach(({ person, isSpouse }) => { html += generateCardHTML(person, isSpouse); });
             treeRoot.innerHTML = html;
