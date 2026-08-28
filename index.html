@@ -541,13 +541,12 @@
                             </div>`;
                 }
                 if (bd || dd) {
-                    let dateText;
-                    if (bd && dd) dateText = `${escapeHTML(bd)} – ${escapeHTML(dd)}`;
-                    else if (bd) dateText = `${escapeHTML(bd)}`;
-                    else dateText = `${escapeHTML(dd)}`;
+                    const dateLines = [];
+                    if (bd) dateLines.push(`D: ${escapeHTML(bd)}`);
+                    if (dd) dateLines.push(`Ö: ${escapeHTML(dd)}`);
                     html += `<div class="flex items-start gap-1.5 text-left">
                                 <i data-lucide="calendar" class="w-3 h-3 mt-0.5 shrink-0 text-slate-400"></i>
-                                <span class="min-w-0 break-words">${dateText}</span>
+                                <span class="min-w-0 break-words">${dateLines.join('<br>')}</span>
                             </div>`;
                 }
                 for (const key of displayAttributes) {
@@ -695,13 +694,13 @@
         }
 
         // --- Cross Tree Linking Logic ---
-        // Lines are collected first (as {x1,y1,x2,y2,type,...} defs) rather than
-        // drawn immediately, so that once every connector for this render pass is
-        // known, crossing horizontal/vertical segments from *different* lines can
-        // get a small "bump" (like a wire hop) at the point they intercept —
-        // otherwise two unrelated lines that happen to overlap on screen read as
-        // if they connect. Segments from the SAME line meeting at their own
-        // corners are not crossings and never get bumped.
+        // Every connector (parent-child descent + spouse marriage line) is
+        // rendered as strictly orthogonal straight segments: a vertical drop, a
+        // horizontal run, a vertical drop. No arcs and no "wire hop" bumps at
+        // crossings. Segments from DIFFERENT families that would otherwise run
+        // collinear on top of each other do get pulled a few pixels apart (see
+        // separateCollinearOverlaps) so two distinct edges don't read as one;
+        // shared sibling buses within one family stay stacked as a single bus.
         function queueCrossLink(pending, x1, y1, x2, y2, type, color = '#94a3b8', sharedMidY = null, isGlowing = false, dash = '') {
             pending.push({ x1, y1, x2, y2, type, color, sharedMidY, isGlowing, dash });
         }
@@ -727,22 +726,20 @@
             return segs;
         }
 
-        const LINE_BUMP_RADIUS = 7;
-        const LINE_BUMP_EPS = 3; // ignore near-endpoint touches — those are shared corners, not crossings
-
         const COLLINEAR_AXIS_EPS = 2;      // coords this close count as the same gridline
         const COLLINEAR_MIN_OVERLAP = 8;   // shorter shared runs aren't worth splitting
         const COLLINEAR_SEP = 5;           // perpendicular gap between the separated parallel lines
 
-        // Pull apart segments from DIFFERENT connector lines that run collinear
-        // and overlap — two verticals sharing an X, or two horizontals sharing a
-        // Y — since drawn on top of each other they read as a single stroke and
-        // hide that two distinct edges are there. Lines of the SAME color are
-        // left stacked: those are the shared sibling "trunk" and are meant to
-        // merge (see queueCrossLink's comment). Mutates lineSegs in place,
-        // translating a whole segment perpendicular and dragging its elbow
-        // neighbours' shared endpoints along, so every path stays connected and
-        // strictly orthogonal.
+        // Pull apart segments from DIFFERENT families that run collinear and
+        // overlap — two verticals sharing an X, or two horizontals sharing a Y —
+        // since drawn on top of each other they read as a single stroke and hide
+        // that two distinct edges are there. Staggering is by distinct FAMILY
+        // colour, never by distinct line: all the sibling connectors hanging off
+        // one parent share a colour and are meant to sit on one flat "bus", so
+        // they stay stacked. Only genuinely different families get pried a few
+        // pixels off each other. Mutates lineSegs in place, translating a whole
+        // segment perpendicular and dragging its elbow neighbours' shared
+        // endpoints along, so every path stays connected and strictly orthogonal.
         function separateCollinearOverlaps(lines, lineSegs) {
             const shiftSeg = (segs, si, dx, dy) => {
                 segs[si].x1 += dx; segs[si].y1 += dy;
@@ -781,12 +778,6 @@
                         });
                         if (byLine.size < 2) return;
                         const lineIds = [...byLine.keys()].sort((a, b) => a - b);
-                        // Stagger by distinct FAMILY colour, not by distinct line.
-                        // All the sibling connectors hanging off one parent share
-                        // a colour and are meant to sit on one gridline (one flat
-                        // "bus" the children branch from) — moving them apart
-                        // individually is exactly the bug this must avoid. Only
-                        // genuinely different families get pried off each other.
                         const colorIndex = new Map();
                         lineIds.forEach(id => {
                             const c = lines[id].color;
@@ -836,55 +827,12 @@
                 seg.x1 = Math.round(seg.x1); seg.y1 = Math.round(seg.y1);
                 seg.x2 = Math.round(seg.x2); seg.y2 = Math.round(seg.y2);
             }));
-            const crossings = lineSegs.map(segs => segs.map(() => []));
-
-            for (let i = 0; i < lineSegs.length; i++) {
-                for (let si = 0; si < lineSegs[i].length; si++) {
-                    const h = lineSegs[i][si];
-                    if (h.orientation !== 'h') continue;
-                    const hx1 = Math.min(h.x1, h.x2), hx2 = Math.max(h.x1, h.x2);
-                    if (hx2 - hx1 < LINE_BUMP_EPS * 2) continue;
-                    for (let j = 0; j < lineSegs.length; j++) {
-                        if (j === i) continue;
-                        for (const v of lineSegs[j]) {
-                            if (v.orientation !== 'v') continue;
-                            const vy1 = Math.min(v.y1, v.y2), vy2 = Math.max(v.y1, v.y2);
-                            if (vy2 - vy1 < LINE_BUMP_EPS * 2) continue;
-                            const vx = v.x1;
-                            const hy = h.y1;
-                            if (vx > hx1 + LINE_BUMP_EPS && vx < hx2 - LINE_BUMP_EPS &&
-                                hy > vy1 + LINE_BUMP_EPS && hy < vy2 - LINE_BUMP_EPS) {
-                                crossings[i][si].push(vx);
-                            }
-                        }
-                    }
-                }
-            }
-
             lines.forEach((line, li) => {
                 const segs = lineSegs[li];
-                const segCrossings = crossings[li];
                 let d = '';
                 segs.forEach((seg, si) => {
                     if (si === 0) d += `M ${seg.x1},${seg.y1} `;
-                    if (seg.orientation === 'h' && segCrossings[si].length > 0) {
-                        const leftToRight = seg.x2 > seg.x1;
-                        const xs = [...new Set(segCrossings[si])].sort((a, b) => leftToRight ? a - b : b - a);
-                        const y = seg.y1;
-                        let curX = seg.x1;
-                        xs.forEach(cx => {
-                            const r = Math.min(LINE_BUMP_RADIUS, Math.abs(cx - curX) - 1, Math.abs(seg.x2 - cx) - 1);
-                            if (r < 2) return;
-                            const sign = leftToRight ? 1 : -1;
-                            const enterX = cx - sign * r;
-                            const exitX = cx + sign * r;
-                            d += `L ${enterX},${y} A ${r},${r} 0 0,${leftToRight ? 1 : 0} ${exitX},${y} `;
-                            curX = exitX;
-                        });
-                        d += `L ${seg.x2},${seg.y2} `;
-                    } else {
-                        d += `L ${seg.x2},${seg.y2} `;
-                    }
+                    d += `L ${seg.x2},${seg.y2} `;
                 });
 
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
