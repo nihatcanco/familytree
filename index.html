@@ -57,7 +57,14 @@
         }
 
         /* Search Matches */
-        .tree-node-card.search-match {
+        .tree-node-card.search-match:not(.root-node) {
+            outline: 4px solid var(--search-color, #f59e0b);
+            outline-offset: 3px;
+            box-shadow: 0 0 15px var(--search-color, rgba(245, 158, 11, 0.5));
+        }
+        /* On a family root, mark the diamond itself — not the invisible 220px
+           square that wraps it for tidy-tree X math. */
+        .root-node.search-match .root-diamond {
             outline: 4px solid var(--search-color, #f59e0b);
             outline-offset: 3px;
             box-shadow: 0 0 15px var(--search-color, rgba(245, 158, 11, 0.5));
@@ -243,26 +250,41 @@
     <div class="w-[200px] h-full bg-slate-50/95 backdrop-blur border-l border-slate-200 shadow-xl flex flex-col p-4 z-20 shrink-0">
 
         <!-- Person Details Panel -->
-        <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col shrink-0 mb-4">
-            <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 shrink-0">
-                <span>Kişi Detayları</span>
-            </div>
-            <div class="flex items-center gap-1.5 mb-2 shrink-0">
-                <button id="btn-focus" class="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Focus">
-                    <i data-lucide="focus" class="w-3.5 h-3.5"></i>
-                </button>
-                <button id="btn-edit-details" class="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Düzenle">
-                    <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
-                </button>
-                <button id="btn-delete-details" class="p-1 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded transition-colors cursor-pointer" title="Sil">
-                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                </button>
-                <button id="btn-close-details" class="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer" title="Kapat">
-                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                </button>
-            </div>
-            <div id="person-details-content" class="flex flex-col gap-2 text-xs text-slate-600">
+        <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 pt-3 hidden flex-col shrink-0 mb-4">
+            <div id="person-details-content" class="flex flex-col text-sm text-slate-600">
                 <!-- Populated by JS -->
+            </div>
+            <div class="flex overflow-hidden rounded shrink-0">
+                <button id="btn-focus" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Focus">
+                    <i data-lucide="focus" class="w-5 h-5"></i>
+                </button>
+                <button id="btn-edit-details" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Düzenle">
+                    <i data-lucide="pencil" class="w-5 h-5"></i>
+                </button>
+                <button id="btn-delete-details" class="p-2 hover:bg-red-50 text-slate-600 hover:text-red-500 transition-colors cursor-pointer flex-1 flex justify-center" title="Sil">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                </button>
+                <button id="btn-close-details" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Kapat">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Search -->
+        <div class="flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
+            <div class="flex items-center justify-center">
+                <input type="text" id="search-input" placeholder="Arama" class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
+                <button id="btn-search-clear" class="p-3 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer hidden justify-center shrink-0" title="Temizle">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div class="flex items-stretch border-t border-slate-200">
+                <button id="btn-search-prev" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex items-center justify-center" title="Önceki Sonuç">
+                    <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                </button>
+                <button id="btn-search-next" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex items-center justify-center" title="Sonraki Sonuç">
+                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                </button>
             </div>
         </div>
 
@@ -278,37 +300,13 @@
 
         <!-- Generation Color Legend -->
         <div id="generation-legend" class="bg-white rounded-lg shadow-sm border border-slate-200 p-3 hidden flex-col flex-1 min-h-0 overflow-hidden mb-4">
-            <div class="font-semibold text-slate-700 text-[11px] uppercase tracking-wider mb-2 pb-2 border-b border-slate-200 flex justify-between items-center shrink-0">
-                <span>Nesiller</span>
-            </div>
             <div id="legend-list" class="flex flex-col gap-2 text-xs text-slate-600 overflow-y-auto custom-scrollbar pr-1 pb-1">
                 <!-- Populated by JS -->
-            </div>
-            <div id="legend-note" class="mt-2 pt-2 border-t border-slate-200 text-[10px] text-slate-400 text-center italic hidden shrink-0">
-                16+ başa döner
-            </div>
-        </div>
-
-        <!-- Search -->
-        <div class="flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
-            <div class="flex items-center justify-center">
-                <input type="text" id="search-input" placeholder="Ara..." class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
-                <button id="btn-search-clear" class="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer hidden justify-center shrink-0" title="Temizle">
-                    <i data-lucide="x" class="w-4 h-4"></i>
-                </button>
-            </div>
-            <div class="flex items-stretch border-t border-slate-200">
-                <button id="btn-search-prev" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex items-center justify-center" title="Önceki Sonuç">
-                    <i data-lucide="chevron-up" class="w-4 h-4"></i>
-                </button>
-                <button id="btn-search-next" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex items-center justify-center" title="Sonraki Sonuç">
-                    <i data-lucide="chevron-down" class="w-4 h-4"></i>
-                </button>
             </div>
         </div>
         
         <!-- Minimap -->
-        <div id="minimap-wrapper" class="bg-white rounded-lg shadow-sm border border-slate-200 hidden flex-col shrink-0 h-[240px]">
+        <div id="minimap-wrapper" class="bg-white rounded-lg shadow-sm border border-slate-200 hidden flex-col shrink-0">
             <div class="flex overflow-hidden rounded shrink-0">
                 <button id="btn-zoom-out" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom Out">
                     <i data-lucide="zoom-out" class="w-5 h-5"></i>
@@ -323,7 +321,7 @@
                     <i data-lucide="download" class="w-5 h-5"></i>
                 </button>
             </div>
-            <div id="minimap-container" class="relative w-full flex-1 bg-slate-50 overflow-hidden border border-slate-200 rounded cursor-crosshair">
+            <div id="minimap-container" class="relative w-full aspect-square bg-slate-50 overflow-hidden border border-slate-200 rounded cursor-crosshair">
                 <canvas id="minimap-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
                 <div id="minimap-viewport" class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none transition-none shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" style="display: none;"></div>
             </div>
@@ -517,9 +515,19 @@
             html += `<div class="text-[10px] text-slate-400 font-mono mb-1">${genderIcon}ID: ${escapeHTML(person.id)}</div>
                 </div>`;
 
-            const displayAttributes = Object.keys(person.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
-            if (displayAttributes.length > 0) {
-                html += `<div class="mt-2 flex flex-col gap-1 text-xs text-slate-600">`;
+            const cardAttrs = person.attributes || {};
+            const displayAttributes = Object.keys(cardAttrs).filter(k => k !== 'surname' && k !== 'gender' && k !== 'birthplace' && k !== 'birthdate' && k !== 'dateofdeath');
+            const dateLine = [cardAttrs.birthdate, cardAttrs.dateofdeath].filter(Boolean).map(escapeHTML).join(' - ');
+            if (displayAttributes.length > 0 || dateLine || cardAttrs.birthplace) {
+                html += `<div class="mt-2 flex flex-col gap-1 text-sm text-slate-600">`;
+                if (cardAttrs.birthplace) {
+                    html += `
+                            <div class="bg-white/70 mt-2 rounded-md text-center whitespace-normal break-words" title="birthplace: ${escapeHTML(cardAttrs.birthplace)}">${escapeHTML(cardAttrs.birthplace)}</div>`;
+                }
+                if (dateLine) {
+                    html += `
+                            <div class="bg-white/70 mt-2 rounded-md text-center whitespace-normal break-words">${dateLine}</div>`;
+                }
                 for (const key of displayAttributes) {
                     const value = person.attributes[key];
                     if (key === 'note') {
@@ -1590,31 +1598,12 @@
                 detailsHTML += `<div class="w-16 h-16 rounded-full bg-slate-50 mx-auto mb-2 flex items-center justify-center border-2 border-slate-100 shadow-sm shrink-0"><i data-lucide="user" class="w-8 h-8 text-slate-300"></i></div>`;
             }
 
-            detailsHTML += `<div class="font-bold text-slate-900 text-sm ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</div>`;
+            detailsHTML += `<div class="text-center font-bold text-slate-900 text-sm ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</div>`;
             if (surname) {
-                detailsHTML += `<div class="font-semibold text-slate-700 text-sm mb-1">${escapeHTML(surname)}</div>`;
+                detailsHTML += `<div class="text-center font-semibold text-slate-700 text-sm mb-1">${escapeHTML(surname)}</div>`;
             }
-            detailsHTML += `<div class="text-[10px] text-slate-400 font-mono mb-2 border-b border-slate-100 pb-2">${genderIcon}ID: ${escapeHTML(details.id)}</div>`;
+            detailsHTML += `<div class="text-center text-[10px] text-slate-400 font-mono mb-2">${genderIcon}ID: ${escapeHTML(details.id)}</div>`;
 
-            const displayAttributes = Object.keys(details.attributes || {}).filter(k => k !== 'surname' && k !== 'gender');
-            if (displayAttributes.length > 0) {
-                for (const key of displayAttributes) {
-                    const value = details.attributes[key];
-                    if (key === 'note') {
-                        detailsHTML += `
-                            <div class="bg-amber-50 px-2 py-1.5 rounded-md border border-amber-100">
-                                <div class="font-semibold text-slate-800 text-[10px] uppercase mb-0.5">${escapeHTML(key)}</div>
-                                <div class="whitespace-normal break-words text-slate-800">${escapeHTML(value)}</div>
-                            </div>`;
-                    } else {
-                        detailsHTML += `
-                            <div class="bg-slate-50 px-2 py-1.5 rounded-md border border-slate-100">
-                                <div class="font-semibold text-slate-700 text-[10px] uppercase mb-0.5">${escapeHTML(key)}</div>
-                                <div class="whitespace-normal break-words text-slate-800">${escapeHTML(value)}</div>
-                            </div>`;
-                    }
-                }
-            }
             personDetailsContent.innerHTML = detailsHTML;
             personDetailsPanel.classList.remove('hidden');
             personDetailsPanel.classList.add('flex');

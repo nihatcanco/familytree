@@ -483,7 +483,12 @@ export function computeTreeLayout(roots) {
         let width = ownX - CARD_WIDTH / 2 + rowRightExtent;
         contour.forEach(r => { if (r.max > width) width = r.max; });
 
-        return { person, ownX, spouseX, childUnits, width, contour };
+        // rowCenterOffset: distance from ownX (this person's own card center)
+        // to the visual center of the whole marriage row (own card + any
+        // inline childless spouses extending rightward). A parent centers
+        // over this point, not over ownX, so the descent line lands in the
+        // middle of the couple rather than above the left partner.
+        return { person, ownX, rowCenterOffset, spouseX, childUnits, width, contour };
     }
 
     // A family unit is one entry in a parent's children[] list: the child's
@@ -497,8 +502,13 @@ export function computeTreeLayout(roots) {
 
         columns.forEach((c, i) => { c.finalOffset = packed.offsets[i]; });
 
-        const firstX = packed.offsets[0] + columns[0].ownX;
-        const lastX = packed.offsets[packed.offsets.length - 1] + columns[columns.length - 1].ownX;
+        // Anchor over the visual center of the outermost couples, not their
+        // bare card centers: a childless spouse attached inline to the first
+        // or last column shifts that column's true center sideways.
+        const firstCol = columns[0];
+        const lastCol = columns[columns.length - 1];
+        const firstX = packed.offsets[0] + firstCol.ownX + (firstCol.rowCenterOffset || 0);
+        const lastX = packed.offsets[packed.offsets.length - 1] + lastCol.ownX + (lastCol.rowCenterOffset || 0);
         const anchorX = (firstX + lastX) / 2;
 
         return { person, columns, anchorX, width: packed.width, contour: packed.contour };
