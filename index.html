@@ -515,8 +515,11 @@
             }
 
             let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border border-slate-300 rounded-xl p-4 shadow-sm w-[220px] min-h-[10em] text-center absolute z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
-                <span class="absolute top-1 right-2 text-[9px] font-mono text-slate-300 opacity-70 select-none pointer-events-none">#${escapeHTML(String(person.id))}</span>
-                <div class="card-header">
+                <span class="absolute top-1 right-2 text-[9px] font-mono text-slate-300 opacity-70 select-none pointer-events-none">#${escapeHTML(String(person.id))}</span>`;
+            if (person._generation) {
+                html += `<span class="absolute top-1 left-2 text-[9px] font-mono text-slate-300 opacity-70 select-none pointer-events-none">${person._generation}. Nesil</span>`;
+            }
+            html += `<div class="card-header">
                 ${portraitHtml}
                 <h3 class="font-bold text-slate-900 text-lg leading-tight hover:opacity-80 transition-opacity">${escapeHTML(name)}</h3>`;
             if (surname) {
