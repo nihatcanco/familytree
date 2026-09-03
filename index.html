@@ -2976,7 +2976,13 @@ ${cardsInner}
         }
 
         function performSearch() {
-            const query = foldTurkish(searchInput.value.trim());
+            const rawQuery = searchInput.value.trim();
+            const query = foldTurkish(rawQuery);
+            // Split the query into individual keywords; every keyword must be
+            // found somewhere in a person's fields for the card to match. This
+            // lets "ahmet yilmaz" match a person whose name is "Ahmet" and
+            // surname "Yılmaz" regardless of field order.
+            const terms = query.split(/\s+/).filter(Boolean);
             
             // Temizle butonunu göster/gizle
             if (query.length > 0) {
@@ -3004,15 +3010,20 @@ ${cardsInner}
                 if (detailsStr) {
                     try {
                         const details = JSON.parse(detailsStr);
+                        const attrs = details.attributes || {};
                         const searchableValues = details.isRoot ? [details.title] : [
                             details.name,
                             details.id,
-                            ...(details.attributes ? Object.values(details.attributes) : [])
+                            attrs.surname,
+                            // Explicit "name surname" so full-name queries match
+                            // even when keyword splitting isn't enough.
+                            `${details.name || ''} ${attrs.surname || ''}`,
+                            ...Object.values(attrs)
                         ];
-                        
+
                         const text = foldTurkish(searchableValues.filter(Boolean).join(' '));
 
-                        if (text.includes(query)) {
+                        if (terms.every(term => text.includes(term))) {
                             searchResults.push(card);
                             card.classList.add('search-match');
                             
