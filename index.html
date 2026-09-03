@@ -1165,7 +1165,14 @@
                     if (attachPoints.length > 0) {
                         const maxRowBottomY = Math.max(...attachPoints.map(a => a.rowBottomY));
                         const myTopY = (cardRect.top - treeRect.top) / currentZoom;
-                        const sharedMidY = (maxRowBottomY + myTopY) / 2;
+                        // The shared horizontal junction bar always sits a small
+                        // fixed gap ABOVE the child's top edge, so every descent
+                        // connector drops straight down onto the top line of the
+                        // child card from above — never approaching from the side
+                        // or from below, even when the generation rows are packed
+                        // close together (midpoint would land inside the card).
+                        const CHILD_BAR_GAP = 16;
+                        const sharedMidY = Math.min((maxRowBottomY + myTopY) / 2, myTopY - CHILD_BAR_GAP);
 
                         const lineColor = attachPoints[0].color;
                         const lineDash = attachPoints[0].dash || '';
