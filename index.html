@@ -84,6 +84,19 @@
             border-color: var(--highlight-color, #94a3b8);
         }
 
+        /* "İki kişi arası bağ" — the two people being picked for the
+           relationship path. Kept on its own class (not .highlighted) so the
+           search / generation-legend clears don't wipe the pick markers while
+           the user is still choosing. */
+        .tree-node-card.rel-pick:not(.root-node) {
+            border-color: var(--rel-pick-color, #2563eb) !important;
+            box-shadow: 0 0 0 4px var(--rel-pick-shadow, rgba(37, 130, 246, 0.35)) !important;
+        }
+        .root-node.rel-pick .root-diamond {
+            border-color: var(--rel-pick-color, #2563eb) !important;
+            box-shadow: 0 0 0 4px var(--rel-pick-shadow, rgba(37, 130, 246, 0.35)) !important;
+        }
+
         /* Family root: a diamond showing only its title. Kept 220px wide so the
            tidy-tree X math (CARD_WIDTH) and connector centre-x stay correct. */
         .root-node {
@@ -289,6 +302,18 @@
             </div>
         </div>
 
+        <!-- İki kişi arası bağ -->
+        <div class="flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
+            <button id="btn-relationship" title="İki kişi arasındaki bağı göster" class="flex items-center justify-center gap-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
+                <i data-lucide="route" class="w-5 h-5"></i>
+            </button>
+            <div id="relationship-status" class="hidden flex-col gap-2 text-xs text-slate-600 border-t border-slate-200 p-3">
+                <p id="relationship-instr" class="leading-snug"></p>
+                <div id="relationship-chain" class="hidden flex-col gap-1 text-[11px]"></div>
+                <button id="btn-relationship-cancel" class="bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Kapat</button>
+            </div>
+        </div>
+
         <!-- Add Person / Add Root -->
         <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
             <button id="btn-add-root" title="Kök Ekle" class="flex-1 flex items-center justify-center gap-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
@@ -367,6 +392,12 @@
         const btnZoomReset = document.getElementById('btn-zoom-reset');
         const btnFocus = document.getElementById('btn-focus');
 
+        const btnRelationship = document.getElementById('btn-relationship');
+        const relationshipStatus = document.getElementById('relationship-status');
+        const relationshipInstr = document.getElementById('relationship-instr');
+        const relationshipChain = document.getElementById('relationship-chain');
+        const btnRelationshipCancel = document.getElementById('btn-relationship-cancel');
+
         const searchInput = document.getElementById('search-input');
         const btnSearchClear = document.getElementById('btn-search-clear');
         const btnSearchPrev = document.getElementById('btn-search-prev');
@@ -391,6 +422,11 @@
         // State
         let currentZoom = 1;
         let isFocusMode = false;
+        // "İki kişi arası bağ" feature: null | 'picking' (choosing the two
+        // people) | 'showing' (the connecting path is rendered focus-style).
+        let relationshipMode = null;
+        let relPick1 = null;
+        let relPick2 = null;
         let searchResults = [];
         let currentSearchIndex = -1;
         let originalRoots = []; // full (unfocused) hierarchy, set once after load
@@ -1325,6 +1361,10 @@
             } else {
                 isFocusMode = !isFocusMode;
             }
+
+            // Leaving focus also tears down an active "İki kişi arası bağ"
+            // view (e.g. a search or "close details" click exits both).
+            if (!isFocusMode && relationshipMode) resetRelationshipUI();
 
             if (btnFocus) {
                 if (isFocusMode) {
@@ -2404,11 +2444,18 @@ ${cardsInner}
 
         // Node selection and bloodline highlighting logic
         treeRoot.addEventListener('click', (e) => {
-            if (isFocusMode) return;
-
             const card = e.target.closest('.tree-node-card');
             if (!card) return;
-            
+
+            // While picking the two people for "İki kişi arası bağ", a card
+            // click records a pick instead of triggering the bloodline view.
+            if (relationshipMode === 'picking') {
+                handleRelationshipPick(card);
+                return;
+            }
+
+            if (isFocusMode) return;
+
             const isAlreadyHighlighted = card.classList.contains('highlighted');
             
             // Clear previous highlights
@@ -2618,6 +2665,249 @@ ${cardsInner}
             if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         });
 
+        // --- "İki kişi arası bağ" (relationship path between two people) ---
+        // Pick two people from the tree (search + generation legend stay usable
+        // for locating them), then render only the chain of relatives that
+        // connects them, in the same focus-mode style as the bloodline view.
+
+        function clearPickMarkers() {
+            document.querySelectorAll('.tree-node-card.rel-pick').forEach(el => {
+                el.classList.remove('rel-pick');
+                el.style.removeProperty('--rel-pick-color');
+                el.style.removeProperty('--rel-pick-shadow');
+            });
+        }
+
+        function clearHighlightsAndPanel() {
+            document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
+                el.classList.remove('highlighted', 'highlighted-gen', 'highlighted-spouse');
+                el.style.removeProperty('--highlight-color');
+                el.style.removeProperty('--highlight-shadow');
+            });
+            document.querySelectorAll('.legend-item').forEach(el => {
+                el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
+            });
+            personDetailsPanel.classList.add('hidden');
+            personDetailsPanel.classList.remove('flex');
+        }
+
+        function setRelBtnActive(active) {
+            btnRelationship.classList.toggle('bg-blue-50', active);
+            btnRelationship.classList.toggle('text-blue-600', active);
+            btnRelationship.classList.toggle('text-slate-600', !active);
+        }
+
+        // Resets only the relationship UI/state (button, status panel, picks).
+        // Does NOT re-render the tree — callers that were showing a path handle
+        // that (toggleFocusMode already re-renders the full tree on its way out).
+        function resetRelationshipUI() {
+            relationshipMode = null;
+            relPick1 = null;
+            relPick2 = null;
+            setRelBtnActive(false);
+            relationshipStatus.classList.add('hidden');
+            relationshipStatus.classList.remove('flex');
+            relationshipChain.classList.add('hidden');
+            relationshipChain.classList.remove('flex');
+            relationshipChain.innerHTML = '';
+            clearPickMarkers();
+        }
+
+        function personLabel(id) {
+            const n = findPersonNode(originalRoots, Number(id));
+            if (!n) return `#${id}`;
+            if (n._isRoot) return n.title || 'KÖK';
+            return `${n.name || ''} ${(n.attributes && n.attributes.surname) || ''}`.trim() || `#${id}`;
+        }
+
+        // Undirected adjacency over parent/child, spouse and founding-member ->
+        // root edges, keyed by numeric id (root nodes keep their negative id).
+        function buildRelationshipGraph() {
+            const adj = new Map();
+            const link = (a, b) => {
+                if (!adj.has(a)) adj.set(a, new Set());
+                adj.get(a).add(b);
+            };
+            const seen = new Set();
+            collectAllPersons(originalRoots).forEach(({ person }) => {
+                const id = Number(person.id);
+                if (seen.has(id)) return;
+                seen.add(id);
+                if (!adj.has(id)) adj.set(id, new Set());
+                (person._parentIds || []).forEach(pid => { link(id, Number(pid)); link(Number(pid), id); });
+                (person._spouseIds || []).forEach(sid => { link(id, Number(sid)); link(Number(sid), id); });
+                if (person._rootParentId != null) {
+                    link(id, Number(person._rootParentId));
+                    link(Number(person._rootParentId), id);
+                }
+            });
+            return adj;
+        }
+
+        // Shortest chain of ids from aId to bId (inclusive), or null if the two
+        // are in unconnected parts of the tree.
+        function findRelationshipPath(aId, bId) {
+            aId = Number(aId); bId = Number(bId);
+            const adj = buildRelationshipGraph();
+            if (!adj.has(aId) || !adj.has(bId)) return null;
+            const prev = new Map([[aId, null]]);
+            const queue = [aId];
+            while (queue.length) {
+                const cur = queue.shift();
+                if (cur === bId) break;
+                for (const nxt of (adj.get(cur) || [])) {
+                    if (!prev.has(nxt)) { prev.set(nxt, cur); queue.push(nxt); }
+                }
+            }
+            if (!prev.has(bId)) return null;
+            const path = [];
+            let n = bId;
+            while (n !== null && n !== undefined) { path.unshift(n); n = prev.get(n); }
+            return path;
+        }
+
+        function markPick(card, which) {
+            card.classList.add('rel-pick');
+            const color = which === 0 ? '#2563eb' : '#16a34a';
+            const shadow = which === 0 ? 'rgba(37, 99, 235, 0.35)' : 'rgba(22, 163, 74, 0.35)';
+            card.style.setProperty('--rel-pick-color', color);
+            card.style.setProperty('--rel-pick-shadow', shadow);
+        }
+
+        function handleRelationshipPick(card) {
+            const id = Number(card.getAttribute('data-id'));
+            if (!id || id < 0) return; // roots / invalid cards can't be an endpoint
+
+            if (relPick1 === null) {
+                relPick1 = id;
+                markPick(card, 0);
+                relationshipInstr.textContent = `1. kişi: ${personLabel(id)}. Şimdi 2. kişiyi seçin.`;
+                return;
+            }
+            if (id === relPick1) { // click the first pick again to undo it
+                relPick1 = null;
+                clearPickMarkers();
+                relationshipInstr.textContent = 'Ağaçtan 1. kişiyi seçin.';
+                return;
+            }
+
+            relPick2 = id;
+            markPick(card, 1);
+
+            const path = findRelationshipPath(relPick1, relPick2);
+            if (!path) {
+                relationshipInstr.textContent = `${personLabel(relPick1)} ile ${personLabel(relPick2)} arasında bir bağ bulunamadı.`;
+                relPick2 = null;
+                return;
+            }
+            showRelationshipView(path);
+        }
+
+        async function showRelationshipView(pathIds) {
+            relationshipMode = 'showing';
+            isFocusMode = true; // reuse focus-mode guards (clicks/legend off) + fit-to-screen zoom
+
+            const ids = pathIds.map(Number);
+            const pathSet = new Set(ids);
+            const endpoints = new Set([ids[0], ids[ids.length - 1]]);
+
+            // Beyond the connecting chain itself, also show each chain person's
+            // spouses and children for context (they render un-highlighted, so
+            // the actual path still stands out).
+            const childrenOf = new Map();
+            const allPersons = collectAllPersons(originalRoots);
+            allPersons.forEach(({ person }) => {
+                (person._parentIds || []).forEach(par => {
+                    const k = Number(par);
+                    if (!childrenOf.has(k)) childrenOf.set(k, []);
+                    childrenOf.get(k).push(Number(person.id));
+                });
+            });
+
+            const visibleIds = new Set(ids);
+            const contextIds = new Set();
+            allPersons.forEach(({ person }) => {
+                const pid = Number(person.id);
+                if (!pathSet.has(pid)) return;
+                (person._spouseIds || []).forEach(s => { visibleIds.add(Number(s)); contextIds.add(Number(s)); });
+                (childrenOf.get(pid) || []).forEach(c => { visibleIds.add(c); contextIds.add(c); });
+            });
+            // A chain person is never merely "context".
+            pathSet.forEach(id => contextIds.delete(id));
+
+            clearHighlightsAndPanel();
+            await renderTreeFromHierarchy(pruneForFocus(originalRoots, visibleIds));
+
+            document.querySelectorAll('.tree-node-card[data-id]').forEach(cardEl => {
+                const cid = Number(cardEl.getAttribute('data-id'));
+                if (!pathSet.has(cid)) return; // context spouses/children stay un-highlighted
+                const gen = parseInt(cardEl.getAttribute('data-generation')) || 1;
+                const len = generationColors.length;
+                const colorObj = generationColors[((gen - 1) % len + len) % len];
+                cardEl.classList.add(endpoints.has(cid) ? 'highlighted' : 'highlighted-gen');
+                cardEl.style.setProperty('--highlight-color', colorObj.hex);
+                cardEl.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
+            });
+            drawCrossTreeLinks();
+
+            const people = ids.filter(x => x > 0);
+            const ctxCount = [...contextIds].filter(x => x > 0).length;
+            relationshipInstr.innerHTML = `Bağ gösteriliyor · <b>${people.length} kişilik zincir</b>, ${ids.length - 1} adım`
+                + (ctxCount ? ` <span class="text-slate-400">(+${ctxCount} eş/çocuk)</span>` : '')
+                + `. Kapatmak için butona ya da "Kapat"a basın.`;
+            relationshipChain.innerHTML = ids
+                .map((id, i) => {
+                    const strong = i === 0 || i === ids.length - 1;
+                    return `<span class="${strong ? 'font-semibold text-slate-800' : ''}">${escapeHTML(personLabel(id))}</span>`;
+                })
+                .join('<span class="text-slate-400 pl-1">↓</span>');
+            relationshipChain.classList.remove('hidden');
+            relationshipChain.classList.add('flex');
+
+            setTimeout(() => {
+                updateZoomStyle();
+                fitTreeToScreen();
+                drawMinimap();
+            }, 50);
+        }
+
+        async function enterRelationshipPicking() {
+            if (isFocusMode) await toggleFocusMode(false);
+            clearPickMarkers();
+            clearHighlightsAndPanel();
+            relationshipMode = 'picking';
+            relPick1 = null;
+            relPick2 = null;
+            setRelBtnActive(true);
+            relationshipStatus.classList.remove('hidden');
+            relationshipStatus.classList.add('flex');
+            relationshipChain.classList.add('hidden');
+            relationshipChain.classList.remove('flex');
+            relationshipInstr.textContent = 'Ağaçtan 1. kişiyi seçin. (Arama ve nesil seçimi de kullanılabilir.)';
+        }
+
+        async function exitRelationshipMode() {
+            const wasShowing = relationshipMode === 'showing';
+            resetRelationshipUI();
+            clearHighlightsAndPanel();
+            if (wasShowing) {
+                isFocusMode = false;
+                await renderTreeFromHierarchy(originalRoots);
+                drawCrossTreeLinks();
+                setTimeout(() => {
+                    currentZoom = 1;
+                    updateZoomStyle();
+                    drawMinimap();
+                }, 50);
+            }
+        }
+
+        btnRelationship.addEventListener('click', async () => {
+            if (relationshipMode) await exitRelationshipMode();
+            else await enterRelationshipPicking();
+        });
+        btnRelationshipCancel.addEventListener('click', () => exitRelationshipMode());
+
         // Drag logic for Minimap
         let isMinimapDragging = false;
         function scrollToMinimapPos(e) {
@@ -2749,8 +3039,11 @@ ${cardsInner}
                 behavior: 'smooth'
             });
             
-            // Trigger click simulation to show person details perfectly
-            if (!targetCard.classList.contains('highlighted')) {
+            // Trigger click simulation to show person details perfectly.
+            // Skipped while picking the two people for "İki kişi arası bağ" —
+            // there a click commits a pick, so let the user click deliberately
+            // once search has scrolled the match into view.
+            if (!targetCard.classList.contains('highlighted') && relationshipMode !== 'picking') {
                  targetCard.click();
             }
         }
