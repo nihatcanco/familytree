@@ -1465,6 +1465,17 @@
                 return;
             }
 
+            // Cmd (⌘) + wheel: explicit zoom for physical mice on macOS, where the
+            // large "steppy" integer deltas need a gentler multiplier to feel right.
+            if (e.metaKey && e.deltaY !== 0) {
+                e.preventDefault();
+                const step = Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50
+                    ? 0.15
+                    : Math.abs(e.deltaY) * 0.01;
+                applyWheelZoom(e, e.deltaY < 0, step);
+                return;
+            }
+
             // No modifier: let the browser scroll/pan natively — both a trackpad's
             // two-finger scroll and a plain mouse wheel behave the same way here.
         }, { passive: false }); // Passive must be false to allow preventDefault()
