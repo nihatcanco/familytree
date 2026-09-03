@@ -891,6 +891,25 @@
                 }
                 if (line.isGlowing) path.classList.add('svg-glow-line');
                 svg.appendChild(path);
+
+                // Small dot in the line's own colour where each connector meets
+                // a person card, so it's clear which line belongs to whom. The
+                // card-touching points are the very first and very last point of
+                // the (already separated + pixel-snapped) segment chain.
+                if (segs.length) {
+                    const ends = [
+                        { x: segs[0].x1, y: segs[0].y1 },
+                        { x: segs[segs.length - 1].x2, y: segs[segs.length - 1].y2 },
+                    ];
+                    ends.forEach(({ x, y }) => {
+                        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        dot.setAttribute('cx', x);
+                        dot.setAttribute('cy', y);
+                        dot.setAttribute('r', line.isGlowing ? '3.5' : '3');
+                        dot.setAttribute('fill', line.color);
+                        svg.appendChild(dot);
+                    });
+                }
             });
         }
 
