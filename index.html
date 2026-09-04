@@ -3037,9 +3037,9 @@ ${cardsInner}
 
             if (!query) return;
 
-            // Exit focus mode to ensure all potential matches are visible
-            if (isFocusMode) toggleFocusMode(false);
-
+            // Focus modundayken arama, o an ağaçta gösterilen (pruned) kartlarla
+            // sınırlı kalır — .tree-node-card zaten sadece görünür kişileri
+            // içerir, bu yüzden focus modundan çıkmaya gerek yok.
             document.querySelectorAll('.tree-node-card').forEach(card => {
                 const detailsStr = card.getAttribute('data-details');
                 if (detailsStr) {
