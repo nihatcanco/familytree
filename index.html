@@ -493,6 +493,13 @@
             return s || '?';
         }
 
+        // The ♂ / ♀ glyph and Turkish label for a gender, or null when unknown.
+        function genderGlyph(gender) {
+            if (gender === 'Male') return { sym: '♂', label: 'Erkek' };
+            if (gender === 'Female') return { sym: '♀', label: 'Kadın' };
+            return null;
+        }
+
         // Utility: Generate HTML for a person's card to prevent code duplication
         function generateCardHTML(person, isSpouse = false) {
             if (!person) return '';
@@ -527,16 +534,11 @@
             const surname = (person.attributes && person.attributes.surname) ? person.attributes.surname : '';
 
             const gender = (person.attributes && person.attributes.gender) ? person.attributes.gender : '';
-            // Gender is conveyed by the avatar's outer ring colour rather than an icon.
-            const avatarRing = gender === 'Male' ? 'border-sky-200'
-                : gender === 'Female' ? 'border-rose-200'
-                : 'border-slate-100';
-
             let portraitHtml = '';
             if (person.photoUrl) {
-                portraitHtml = `<img src="${escapeHTML(person.photoUrl)}" alt="${escapeHTML(name)}" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 ${avatarRing} shadow-sm shrink-0">`;
+                portraitHtml = `<img src="${escapeHTML(person.photoUrl)}" alt="${escapeHTML(name)}" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-slate-100 shadow-sm shrink-0">`;
             } else {
-                portraitHtml = `<div class="w-16 h-16 rounded-full mx-auto mb-2 flex items-center justify-center border-2 ${avatarRing} shadow-sm shrink-0 text-xl font-bold tracking-tight bg-slate-100 text-slate-400">${escapeHTML(initialsOf(name, surname))}</div>`;
+                portraitHtml = `<div class="w-16 h-16 rounded-full mx-auto mb-2 flex items-center justify-center border-2 border-slate-100 shadow-sm shrink-0 text-xl font-bold tracking-tight bg-slate-100 text-slate-400">${escapeHTML(initialsOf(name, surname))}</div>`;
             }
 
             let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border border-slate-300 rounded-xl p-4 shadow-sm w-[220px] min-h-[10em] text-center absolute z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
@@ -560,8 +562,14 @@
             const displayAttributes = Object.keys(cardAttrs).filter(k =>
                 !['surname', 'gender', 'birthplace', 'birthdate', 'dateofdeath', 'note'].includes(k));
 
-            if (bp || bd || dd || note || displayAttributes.length > 0) {
+            const cardGlyph = genderGlyph(gender);
+            if (cardGlyph || bp || bd || dd || note || displayAttributes.length > 0) {
                 html += `<div class="mt-2.5 flex flex-col gap-1.5 text-[13px] text-slate-500 leading-snug">`;
+                if (cardGlyph) {
+                    html += `<div class="flex items-start gap-1.5 text-left" title="${cardGlyph.label}">
+                                <span class="w-3 mt-0.5 shrink-0 text-center leading-none text-slate-400">${cardGlyph.sym}</span>
+                            </div>`;
+                }
                 if (bp) {
                     html += `<div class="flex items-start gap-1.5 text-left" title="${escapeHTML(bp)}">
                                 <i data-lucide="map-pin" class="w-3 h-3 mt-0.5 shrink-0 text-slate-400"></i>
@@ -1620,16 +1628,11 @@
             const name = details.name || "UNKNOWN";
             const surname = (details.attributes && details.attributes.surname) ? details.attributes.surname : '';
             const gender = (details.attributes && details.attributes.gender) ? details.attributes.gender : '';
-            // Gender is conveyed by the avatar's outer ring colour rather than an icon.
-            const avatarRing = gender === 'Male' ? 'border-sky-200'
-                : gender === 'Female' ? 'border-rose-200'
-                : 'border-slate-100';
-
             let detailsHTML = '';
             if (details.photoUrl) {
-                detailsHTML += `<img src="${escapeHTML(details.photoUrl)}" alt="Portrait" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 ${avatarRing} shadow-sm shrink-0">`;
+                detailsHTML += `<img src="${escapeHTML(details.photoUrl)}" alt="Portrait" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-slate-100 shadow-sm shrink-0">`;
             } else {
-                detailsHTML += `<div class="w-16 h-16 rounded-full bg-slate-50 mx-auto mb-2 flex items-center justify-center border-2 ${avatarRing} shadow-sm shrink-0"><i data-lucide="user" class="w-8 h-8 text-slate-300"></i></div>`;
+                detailsHTML += `<div class="w-16 h-16 rounded-full bg-slate-50 mx-auto mb-2 flex items-center justify-center border-2 border-slate-100 shadow-sm shrink-0"><i data-lucide="user" class="w-8 h-8 text-slate-300"></i></div>`;
             }
 
             detailsHTML += `<div class="text-center font-bold text-slate-900 text-sm ${!surname ? 'mb-1' : ''}">${escapeHTML(name)}</div>`;
@@ -1637,6 +1640,10 @@
                 detailsHTML += `<div class="text-center font-semibold text-slate-700 text-sm mb-1">${escapeHTML(surname)}</div>`;
             }
             detailsHTML += `<div class="text-center text-[10px] text-slate-400 font-mono mb-2">ID: ${escapeHTML(details.id)}</div>`;
+            const detailsGlyph = genderGlyph(gender);
+            if (detailsGlyph) {
+                detailsHTML += `<div class="text-center text-[13px] text-slate-400 mb-2" title="${detailsGlyph.label}">${detailsGlyph.sym}</div>`;
+            }
 
             personDetailsContent.innerHTML = detailsHTML;
             personDetailsPanel.classList.remove('hidden');
@@ -2301,9 +2308,7 @@
                + `rx="${radius}" fill="#ffffff" stroke="${svgEsc(stroke)}" stroke-width="${strokeW}"/>`;
 
             const cx = w / 2, pcy = 16 + 32; // p-4 padding + 32px portrait radius
-            // Gender is conveyed by the avatar's outer ring colour rather than an icon.
-            const ringCol = gender === 'Male' ? '#bae6fd' : gender === 'Female' ? '#fecdd3' : '#e2e8f0';
-            s += `<circle cx="${cx}" cy="${pcy}" r="32" fill="#f1f5f9" stroke="${ringCol}" stroke-width="2"/>`;
+            s += `<circle cx="${cx}" cy="${pcy}" r="32" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="2"/>`;
             s += `<text x="${cx}" y="${pcy + 7}" text-anchor="middle" font-size="20" font-weight="700" fill="#94a3b8">${svgEsc(initialsOf(name, surname))}</text>`;
 
             s += `<text x="${w - 8}" y="14" text-anchor="end" font-size="9" `
@@ -2318,6 +2323,11 @@
             ty += 14;
 
             const pad = 16;
+            const svgGlyph = genderGlyph(gender);
+            if (svgGlyph) {
+                s += `<text x="${pad}" y="${ty + 11}" font-size="11" fill="#94a3b8">${svgGlyph.sym}</text>`;
+                ty += 17;
+            }
             for (const key of Object.keys(attrs).filter(k => k !== 'surname' && k !== 'gender')) {
                 const label = key.charAt(0).toLocaleUpperCase('tr') + key.slice(1);
                 const isNote = key === 'note';
