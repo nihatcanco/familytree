@@ -3137,6 +3137,19 @@ ${cardsInner}
                 e.preventDefault();
                 searchInput.focus();
                 searchInput.select();
+                return;
+            }
+
+            // Plain "f" (no modifiers) toggles focus mode, same as the toolbar
+            // button — but not while typing in a text field/textarea/select or
+            // a contenteditable element.
+            if (e.key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                const tag = (e.target.tagName || '').toLowerCase();
+                const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+                if (!isTyping) {
+                    e.preventDefault();
+                    toggleFocusMode();
+                }
             }
         });
 
