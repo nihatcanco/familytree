@@ -2032,6 +2032,9 @@
             const highlightState = captureHighlightState();
             if (isFocusMode) {
                 const visibleIds = new Set(highlightState.keys());
+                // Focus modunda açık olan / yeni eklenen kişiyi de görünür tut,
+                // yoksa düzenleme sonrası soy hattından düşebilir.
+                if (currentDetailsPersonId != null) visibleIds.add(Number(currentDetailsPersonId));
                 await renderTreeFromHierarchy(pruneForFocus(originalRoots, visibleIds));
             } else {
                 await renderTreeFromHierarchy(originalRoots);
@@ -2490,7 +2493,11 @@ ${cardsInner}
                 return;
             }
 
-            if (isFocusMode) return;
+            // Kişi "focus" (soy hattı) modunda tüm etkileşimler açık kalır:
+            // kart tıklama detay panelini açar, vurguyu günceller, düzenleme/
+            // ekleme/silme çalışır. Sadece salt-okunur "İki kişi arası bağ"
+            // sonuç görünümü etkileşimleri kapatır.
+            if (isFocusMode && relationshipMode === 'showing') return;
 
             const isAlreadyHighlighted = card.classList.contains('highlighted');
             
@@ -2632,7 +2639,10 @@ ${cardsInner}
 
         // Close Person Details Panel
         btnCloseDetails.addEventListener('click', () => {
-            if (isFocusMode) toggleFocusMode(false);
+            // Salt-okunur bağ görünümünde paneli kapatmak o görünümden de çıkar.
+            // Düz focus modu ise açık kalır (kendi araç çubuğu butonu ile
+            // açılıp kapanır) ki soy hattı etkileşimli kalsın.
+            if (isFocusMode && relationshipMode === 'showing') toggleFocusMode(false);
             
             document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
                 el.classList.remove('highlighted', 'highlighted-gen', 'highlighted-spouse');
@@ -2657,7 +2667,7 @@ ${cardsInner}
 
         // Renk (Legend) listesinden jenerasyon seçilince tüm grubu vurgulama
         legendList.addEventListener('click', (e) => {
-            if (isFocusMode) return;
+            if (isFocusMode && relationshipMode === 'showing') return;
             
             const item = e.target.closest('.legend-item');
             if (!item) return;
