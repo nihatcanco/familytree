@@ -57,19 +57,8 @@
             scrollbar-width: none;  /* Firefox */
         }
 
-        /* Search Matches */
-        .tree-node-card.search-match:not(.root-node) {
-            outline: 4px solid var(--search-color, #f59e0b);
-            outline-offset: 3px;
-            box-shadow: 0 0 15px var(--search-color, rgba(245, 158, 11, 0.5));
-        }
-        /* On a family root, mark the diamond itself — not the invisible 220px
-           square that wraps it for tidy-tree X math. */
-        .root-node.search-match .root-diamond {
-            outline: 4px solid var(--search-color, #f59e0b);
-            outline-offset: 3px;
-            box-shadow: 0 0 15px var(--search-color, rgba(245, 158, 11, 0.5));
-        }
+        /* Search Matches — no extra frame is drawn around a matched card;
+           search only scrolls the result into view and opens its details. */
 
         /* Highlighted bloodline-path lines, drawn as SVG paths. The selected
            person's vertical relatives' connectors are emphasised with a
