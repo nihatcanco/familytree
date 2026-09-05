@@ -326,11 +326,11 @@
                 <button id="btn-zoom-out" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom Out">
                     <i data-lucide="zoom-out" class="w-5 h-5"></i>
                 </button>
-                <button id="btn-zoom-reset" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Reset Zoom">
-                    <i data-lucide="maximize" class="w-5 h-5"></i>
-                </button>
                 <button id="btn-zoom-in" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Zoom In">
                     <i data-lucide="zoom-in" class="w-5 h-5"></i>
+                </button>
+                <button id="btn-zoom-reset" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Reset Zoom">
+                    <i data-lucide="maximize" class="w-5 h-5"></i>
                 </button>
                 <button id="btn-export-png" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Görüntülenen ağac(lar)ı tek bir SVG görüntü olarak indir">
                     <i data-lucide="download" class="w-5 h-5"></i>
@@ -1377,6 +1377,85 @@
             });
         }
 
+        // Computes a person's full bloodline (self + ancestors + descendants +
+        // spouses of self/descendants) straight from the data model rather
+        // than from whatever the DOM currently has rendered. Entering focus
+        // mode needs this instead of captureHighlightState(): the DOM can
+        // already be a previously pruned/limited focus view (e.g. the user
+        // selected someone else while already focused, then toggled focus off
+        // and back on) — walking that DOM would only "see" ancestors/
+        // descendants that happened to survive the earlier prune, silently
+        // dropping the rest of the newly-selected person's family from the
+        // freshly entered view. Mirrors the ancestor/descendant/spouse walk in
+        // the card-click handler, id-based instead of element-based.
+        function computeBloodline(startId) {
+            startId = Number(startId);
+            const byId = new Map();
+            collectAllPersons(originalRoots).forEach(({ person }) => byId.set(Number(person.id), person));
+
+            const parentIdsOf = (person) => {
+                const ids = [...(person._parentIds || [])].map(Number);
+                if (person._rootParentId != null) ids.push(Number(person._rootParentId));
+                return ids;
+            };
+
+            const childMap = new Map(); // parentId -> [childId, ...]
+            byId.forEach((person, id) => {
+                parentIdsOf(person).forEach(pid => {
+                    if (!childMap.has(pid)) childMap.set(pid, []);
+                    childMap.get(pid).push(id);
+                });
+            });
+
+            const visited = new Set([startId]);
+            const gen = new Set(); // ancestors + descendants -> 'highlighted-gen'
+            const descendants = new Set();
+
+            function walkAncestors(id) {
+                const person = byId.get(id);
+                if (!person) return;
+                parentIdsOf(person).forEach(pid => {
+                    if (!visited.has(pid)) {
+                        visited.add(pid);
+                        gen.add(pid);
+                        walkAncestors(pid);
+                    }
+                });
+            }
+            function walkDescendants(id) {
+                (childMap.get(id) || []).forEach(cid => {
+                    if (!visited.has(cid)) {
+                        visited.add(cid);
+                        gen.add(cid);
+                        descendants.add(cid);
+                        walkDescendants(cid);
+                    }
+                });
+            }
+            walkAncestors(startId);
+            walkDescendants(startId);
+
+            // Spouses of self and of descendants only (mirrors the click
+            // handler's highlightSpouses — a parent's *other* spouse would
+            // wrongly read as part of the selected child's bloodline).
+            const spouses = new Set();
+            const addSpousesOf = (id) => {
+                const person = byId.get(id);
+                if (!person) return;
+                (person._spouseIds || []).forEach(sidRaw => {
+                    const sid = Number(sidRaw);
+                    if (!visited.has(sid)) {
+                        visited.add(sid);
+                        spouses.add(sid);
+                    }
+                });
+            };
+            addSpousesOf(startId);
+            descendants.forEach(addSpousesOf);
+
+            return { self: startId, gen, spouses, all: visited };
+        }
+
         async function toggleFocusMode(forceState) {
             if (typeof forceState === 'boolean') {
                 if (isFocusMode === forceState) return;
@@ -1399,12 +1478,15 @@
                 }
             }
 
-            // Snapshot which cards are currently highlighted (and how) before
-            // re-rendering wipes the DOM — re-applied to the fresh cards below.
-            const highlightState = captureHighlightState();
-
             if (isFocusMode) {
-                if (highlightState.size === 0) {
+                // Whoever is plainly "highlighted" (as opposed to just
+                // highlighted-gen/-spouse) is the selected person focus
+                // centers on — read straight off the DOM since that's just
+                // "who's currently selected", not the bloodline itself.
+                const selfCard = document.querySelector('.tree-node-card.highlighted');
+                const selfId = selfCard ? Number(selfCard.getAttribute('data-id')) : null;
+
+                if (selfId === null) {
                     isFocusMode = false;
                     if (btnFocus) {
                         btnFocus.classList.remove('bg-blue-50', 'text-blue-600');
@@ -1417,16 +1499,36 @@
                     return;
                 }
 
-                // Re-render with only the highlighted bloodline (and whatever
-                // structural ancestors are needed to connect them) instead of
-                // hiding/showing DOM nodes in place.
-                const visibleIds = new Set(highlightState.keys());
-                await renderTreeFromHierarchy(pruneForFocus(originalRoots, visibleIds));
+                // Bloodline recomputed from the full data model (see comment
+                // on computeBloodline) — re-render pruned to exactly that, and
+                // apply highlight classes fresh rather than reusing whatever
+                // the (possibly stale/limited) DOM had before the re-render.
+                const bloodline = computeBloodline(selfId);
+                await renderTreeFromHierarchy(pruneForFocus(originalRoots, bloodline.all));
+
+                document.querySelectorAll('.tree-node-card[data-id]').forEach(cardEl => {
+                    const cid = Number(cardEl.getAttribute('data-id'));
+                    const cls = cid === bloodline.self ? 'highlighted'
+                        : bloodline.gen.has(cid) ? 'highlighted-gen'
+                        : bloodline.spouses.has(cid) ? 'highlighted-spouse'
+                        : null;
+                    if (!cls) return;
+                    const cardGen = parseInt(cardEl.getAttribute('data-generation')) || 1;
+                    const len = generationColors.length;
+                    const colorObj = generationColors[((cardGen - 1) % len + len) % len];
+                    cardEl.classList.add(cls);
+                    cardEl.style.setProperty('--highlight-color', colorObj.hex);
+                    cardEl.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
+                });
             } else {
+                // Snapshot which cards are currently highlighted (and how)
+                // before re-rendering wipes the DOM — re-applied to the fresh
+                // (full-tree) cards below.
+                const highlightState = captureHighlightState();
                 await renderTreeFromHierarchy(originalRoots);
+                applyHighlightState(highlightState);
             }
 
-            applyHighlightState(highlightState);
             drawCrossTreeLinks();
 
             setTimeout(() => {
@@ -2521,16 +2623,20 @@ ${cardsInner}
             personDetailsPanel.classList.remove('flex');
             
             // Highlight logic (toggles off if clicking the currently highlighted card)
+            // Note: this only ever highlights/selects — it never re-renders the
+            // tree, in focus mode or otherwise. Changing what focus mode shows
+            // is solely the Focus toolbar button's job (see toggleFocusMode);
+            // a card click just selects within whatever's currently on screen.
             if (!isAlreadyHighlighted) {
                 card.classList.add('highlighted');
-                
+
                 const gen = parseInt(card.getAttribute('data-generation')) || 1;
                 const len = generationColors.length;
                 const colorIndex = ((gen - 1) % len + len) % len; // Safe modulo for negative numbers
                 const colorObj = generationColors[colorIndex];
                 card.style.setProperty('--highlight-color', colorObj.hex);
                 card.style.setProperty('--highlight-shadow', `0 0 0 4px ${colorObj.rgba}`);
-                
+
                 const detailsStr = card.getAttribute('data-details');
                 if (detailsStr) {
                     try {
@@ -3140,10 +3246,10 @@ ${cardsInner}
                 return;
             }
 
-            // Plain "f" (no modifiers) toggles focus mode, same as the toolbar
-            // button — but not while typing in a text field/textarea/select or
-            // a contenteditable element.
-            if (e.key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            // Shift+F toggles focus mode, same as the toolbar button — but not
+            // while typing in a text field/textarea/select or a contenteditable
+            // element.
+            if (e.key === 'F' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
                 const tag = (e.target.tagName || '').toLowerCase();
                 const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
                 if (!isTyping) {
