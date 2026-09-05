@@ -8,10 +8,17 @@ the database file on disk -- no browser file-write APIs, no downloads.
 Run with:
     python3 server.py [port]
 """
+import hashlib
+import hmac
 import json
+import os
 import re
+import secrets
 import sqlite3
 import sys
+import threading
+import time
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -20,6 +27,26 @@ ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data.sqlite"
 
 EDITABLE_FIELDS = {"name", "surname", "gender", "birthdate", "birthplace", "note", "dateofdeath"}
+
+# --- Auth ---------------------------------------------------------------
+# Sessions are opaque tokens in a DB table (not signed cookies) so they can
+# be revoked server-side (logout, admin removing a user) with a single
+# DELETE. SameSite=Strict is the CSRF defense: a cross-site request simply
+# never carries the cookie, so state-changing endpoints need no separate
+# CSRF token. Set FAMILYTREE_SECURE_COOKIES=1 when this is deployed behind
+# an HTTPS reverse proxy (required for real internet exposure -- this
+# process itself only ever speaks plain HTTP).
+SESSION_COOKIE_NAME = "ft_session"
+SESSION_TTL_SECONDS = 7 * 24 * 3600
+SECURE_COOKIES = os.environ.get("FAMILYTREE_SECURE_COOKIES") == "1"
+ROLES = {"admin", "editor", "viewer"}
+PBKDF2_ITERATIONS = 260_000
+
+# ip -> [timestamps of recent failed login attempts], guarded by _login_lock.
+_login_failures = {}
+_login_lock = threading.Lock()
+LOGIN_MAX_ATTEMPTS = 8
+LOGIN_WINDOW_SECONDS = 300
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -70,6 +97,269 @@ def ensure_schema():
             )
             """
         )
+        # Login accounts. personId links a user to "who they are" in the
+        # family tree; it's informational only (nothing in the tree logic
+        # depends on it) and is nullable since not every account maps to a
+        # person in the tree.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS Users (
+                id INTEGER PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                passwordHash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer',
+                personId INT,
+                createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (personId) REFERENCES People(id) ON DELETE SET NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS Sessions (
+                token TEXT PRIMARY KEY,
+                userId INT NOT NULL,
+                createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+                expiresAt TEXT NOT NULL,
+                FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def hash_password(password):
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password, stored):
+    try:
+        scheme, iterations, salt_hex, digest_hex = stored.split("$")
+        if scheme != "pbkdf2_sha256":
+            return False
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(digest_hex)
+    except (ValueError, AttributeError):
+        return False
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, int(iterations))
+    return hmac.compare_digest(actual, expected)
+
+
+def ensure_initial_admin():
+    """On a fresh database, create the first admin account and print its
+    one-time password to the console -- there is no other account yet that
+    could be used to create one via the API."""
+    conn = get_connection()
+    try:
+        if conn.execute("SELECT COUNT(*) AS c FROM Users").fetchone()["c"] > 0:
+            return
+        username = os.environ.get("FAMILYTREE_ADMIN_USERNAME", "admin")
+        password = os.environ.get("FAMILYTREE_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+        conn.execute(
+            "INSERT INTO Users (username, passwordHash, role, personId) VALUES (?, ?, 'admin', NULL)",
+            (username, hash_password(password)),
+        )
+        conn.commit()
+        print("=" * 64)
+        print(" İlk admin hesabı oluşturuldu -- bu bilgiler bir daha gösterilmeyecek:")
+        print(f"   Kullanıcı adı : {username}")
+        print(f"   Şifre         : {password}")
+        print(" Giriş yaptıktan sonra şifrenizi değiştirmeniz önerilir.")
+        print("=" * 64)
+    finally:
+        conn.close()
+
+
+def _check_rate_limit(ip):
+    now = time.time()
+    with _login_lock:
+        attempts = [t for t in _login_failures.get(ip, []) if now - t < LOGIN_WINDOW_SECONDS]
+        _login_failures[ip] = attempts
+        return len(attempts) < LOGIN_MAX_ATTEMPTS
+
+
+def _record_login_failure(ip):
+    with _login_lock:
+        _login_failures.setdefault(ip, []).append(time.time())
+
+
+def create_session(conn, user_id):
+    token = secrets.token_urlsafe(32)
+    conn.execute(
+        "INSERT INTO Sessions (token, userId, expiresAt) VALUES (?, ?, datetime('now', ?))",
+        (token, user_id, f"+{SESSION_TTL_SECONDS} seconds"),
+    )
+    return token
+
+
+def get_session_user(conn, token):
+    if not token:
+        return None
+    row = conn.execute(
+        """
+        SELECT Users.id, Users.username, Users.role, Users.personId
+        FROM Sessions JOIN Users ON Users.id = Sessions.userId
+        WHERE Sessions.token = ? AND Sessions.expiresAt > datetime('now')
+        """,
+        (token,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_session(conn, token):
+    conn.execute("DELETE FROM Sessions WHERE token = ?", (token,))
+
+
+def login(username, password):
+    username = str(username or "").strip()
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM Users WHERE username = ? COLLATE NOCASE", (username,)).fetchone()
+        if row is None or not verify_password(password or "", row["passwordHash"]):
+            raise ValueError("Kullanıcı adı veya şifre hatalı.")
+        token = create_session(conn, row["id"])
+        conn.commit()
+        return token, _user_public(row)
+    finally:
+        conn.close()
+
+
+def change_own_password(user_id, current_password, new_password):
+    if len(new_password or "") < 8:
+        raise ValueError("Yeni şifre en az 8 karakter olmalıdır.")
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT passwordHash FROM Users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise LookupError("Kullanıcı bulunamadı.")
+        if not verify_password(current_password or "", row["passwordHash"]):
+            raise ValueError("Mevcut şifre yanlış.")
+        conn.execute("UPDATE Users SET passwordHash = ? WHERE id = ?", (hash_password(new_password), user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _user_public(row):
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "role": row["role"],
+        "personId": row["personId"],
+        "createdAt": row["createdAt"],
+    }
+
+
+def _validate_role(role):
+    if role not in ROLES:
+        raise ValueError("Geçersiz rol.")
+    return role
+
+
+def _validate_person_id(conn, person_id):
+    if person_id is None:
+        return None
+    try:
+        person_id = int(person_id)
+    except (TypeError, ValueError):
+        raise ValueError("Geçersiz kişi kimliği.")
+    if conn.execute("SELECT id FROM People WHERE id = ?", (person_id,)).fetchone() is None:
+        raise ValueError(f"Kişi ({person_id}) bulunamadı.")
+    return person_id
+
+
+def list_users():
+    conn = get_connection()
+    try:
+        return [_user_public(r) for r in conn.execute("SELECT * FROM Users ORDER BY id")]
+    finally:
+        conn.close()
+
+
+def create_user(fields):
+    username = str(fields.get("username") or "").strip()
+    password = str(fields.get("password") or "")
+    role = _validate_role(fields.get("role") or "viewer")
+    if not username:
+        raise ValueError("Kullanıcı adı boş olamaz.")
+    if len(password) < 8:
+        raise ValueError("Şifre en az 8 karakter olmalıdır.")
+
+    conn = get_connection()
+    try:
+        person_id = _validate_person_id(conn, fields.get("personId"))
+        if conn.execute("SELECT id FROM Users WHERE username = ? COLLATE NOCASE", (username,)).fetchone():
+            raise ValueError("Bu kullanıcı adı zaten kullanılıyor.")
+        cur = conn.execute(
+            "INSERT INTO Users (username, passwordHash, role, personId) VALUES (?, ?, ?, ?)",
+            (username, hash_password(password), role, person_id),
+        )
+        conn.commit()
+        return _user_public(conn.execute("SELECT * FROM Users WHERE id = ?", (cur.lastrowid,)).fetchone())
+    finally:
+        conn.close()
+
+
+def update_user(user_id, fields):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise LookupError("Kullanıcı bulunamadı.")
+
+        if "username" in fields:
+            username = str(fields["username"] or "").strip()
+            if not username:
+                raise ValueError("Kullanıcı adı boş olamaz.")
+            existing = conn.execute(
+                "SELECT id FROM Users WHERE username = ? COLLATE NOCASE AND id != ?", (username, user_id)
+            ).fetchone()
+            if existing:
+                raise ValueError("Bu kullanıcı adı zaten kullanılıyor.")
+            conn.execute("UPDATE Users SET username = ? WHERE id = ?", (username, user_id))
+
+        if "role" in fields:
+            new_role = _validate_role(fields["role"])
+            if row["role"] == "admin" and new_role != "admin":
+                admin_count = conn.execute("SELECT COUNT(*) AS c FROM Users WHERE role = 'admin'").fetchone()["c"]
+                if admin_count <= 1:
+                    raise ValueError("Son admin kullanıcısının rolü değiştirilemez.")
+            conn.execute("UPDATE Users SET role = ? WHERE id = ?", (new_role, user_id))
+
+        if "personId" in fields:
+            person_id = _validate_person_id(conn, fields["personId"])
+            conn.execute("UPDATE Users SET personId = ? WHERE id = ?", (person_id, user_id))
+
+        if fields.get("password"):
+            password = str(fields["password"])
+            if len(password) < 8:
+                raise ValueError("Şifre en az 8 karakter olmalıdır.")
+            conn.execute("UPDATE Users SET passwordHash = ? WHERE id = ?", (hash_password(password), user_id))
+
+        conn.commit()
+        return _user_public(conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone())
+    finally:
+        conn.close()
+
+
+def delete_user(user_id, acting_user_id):
+    if user_id == acting_user_id:
+        raise ValueError("Kendi hesabınızı silemezsiniz.")
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise LookupError("Kullanıcı bulunamadı.")
+        if row["role"] == "admin":
+            admin_count = conn.execute("SELECT COUNT(*) AS c FROM Users WHERE role = 'admin'").fetchone()["c"]
+            if admin_count <= 1:
+                raise ValueError("Son admin kullanıcısı silinemez.")
+        conn.execute("DELETE FROM Sessions WHERE userId = ?", (user_id,))
+        conn.execute("DELETE FROM Users WHERE id = ?", (user_id,))
         conn.commit()
     finally:
         conn.close()
@@ -459,14 +749,88 @@ def update_person(person_id, fields):
         conn.close()
 
 
+def _build_session_cookie(token, max_age=SESSION_TTL_SECONDS):
+    parts = [f"{SESSION_COOKIE_NAME}={token}", "Path=/", "HttpOnly", "SameSite=Strict", f"Max-Age={max_age}"]
+    if SECURE_COOKIES:
+        parts.append("Secure")
+    return "; ".join(parts)
+
+
 class Handler(BaseHTTPRequestHandler):
-    def _send_json(self, status, payload):
+    def _send_json(self, status, payload, cookie=None):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.end_headers()
         self.wfile.write(body)
+
+    def _get_cookie(self, name):
+        header = self.headers.get("Cookie")
+        if not header:
+            return None
+        jar = SimpleCookie()
+        jar.load(header)
+        morsel = jar.get(name)
+        return morsel.value if morsel else None
+
+    def _current_user(self):
+        token = self._get_cookie(SESSION_COOKIE_NAME)
+        if not token:
+            return None
+        conn = get_connection()
+        try:
+            return get_session_user(conn, token)
+        finally:
+            conn.close()
+
+    def _require_user(self):
+        """Returns the logged-in user, or None after sending a 401."""
+        user = self._current_user()
+        if user is None:
+            self._send_json(401, {"error": "Oturum açılmamış."})
+        return user
+
+    def _require_role(self, user, roles):
+        """Returns True if user's role is allowed, else sends 403 and returns False."""
+        if user["role"] not in roles:
+            self._send_json(403, {"error": "Bu işlem için yetkiniz yok."})
+            return False
+        return True
+
+    def _handle_login(self):
+        ip = self.client_address[0]
+        if not _check_rate_limit(ip):
+            self._send_json(429, {"error": "Çok fazla başarısız deneme yapıldı. Lütfen birkaç dakika sonra tekrar deneyin."})
+            return
+        try:
+            body = self._read_body()
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Geçersiz istek."})
+            return
+        try:
+            token, user = login(body.get("username"), body.get("password"))
+        except ValueError as exc:
+            _record_login_failure(ip)
+            self._send_json(401, {"error": str(exc)})
+            return
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+            return
+        self._send_json(200, user, cookie=_build_session_cookie(token))
+
+    def _handle_logout(self):
+        token = self._get_cookie(SESSION_COOKIE_NAME)
+        if token:
+            conn = get_connection()
+            try:
+                delete_session(conn, token)
+                conn.commit()
+            finally:
+                conn.close()
+        self._send_json(200, {"success": True}, cookie=_build_session_cookie("", max_age=0))
 
     def _serve_static(self, url_path):
         if url_path == "/":
@@ -488,12 +852,29 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/me":
+            user = self._current_user()
+            if user is None:
+                self._send_json(401, {"error": "Oturum açılmamış."})
+            else:
+                self._send_json(200, user)
+            return
         if path == "/api/tree":
+            if self._require_user() is None:
+                return
             try:
                 self._send_json(200, fetch_tree())
             except Exception as exc:
                 self._send_json(500, {"error": str(exc)})
             return
+        if path == "/api/users":
+            user = self._require_user()
+            if user is None or not self._require_role(user, {"admin"}):
+                return
+            self._send_json(200, list_users())
+            return
+        # Static files (index.html, js/*) stay public -- the login screen
+        # itself is part of that bundle, so it can't require a session yet.
         self._serve_static(path)
 
     def _read_body(self):
@@ -516,6 +897,33 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         person = re.fullmatch(r"/api/people/(\d+)", path)
         root = re.fullmatch(r"/api/roots/(\d+)", path)
+        user_match = re.fullmatch(r"/api/users/(\d+)", path)
+
+        user = self._require_user()
+        if user is None:
+            return
+
+        if path == "/api/me":
+            try:
+                body = self._read_body()
+                change_own_password(user["id"], body.get("currentPassword"), body.get("password"))
+                self._send_json(200, {"success": True})
+            except LookupError as exc:
+                self._send_json(404, {"error": str(exc)})
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
+        if user_match:
+            if not self._require_role(user, {"admin"}):
+                return
+            self._dispatch(lambda: (200, update_user(int(user_match.group(1)), self._read_body())))
+            return
+
+        if not self._require_role(user, {"admin", "editor"}):
+            return
         if person:
             self._dispatch(lambda: (200, update_person(int(person.group(1)), self._read_body())))
         elif root:
@@ -525,6 +933,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/api/login":
+            self._handle_login()
+            return
+        if path == "/api/logout":
+            self._handle_logout()
+            return
+
+        user = self._require_user()
+        if user is None:
+            return
+
+        if path == "/api/users":
+            if not self._require_role(user, {"admin"}):
+                return
+            self._dispatch(lambda: (201, create_user(self._read_body())))
+            return
+
+        if not self._require_role(user, {"admin", "editor"}):
+            return
         if path == "/api/people":
             self._dispatch(lambda: (201, create_person(self._read_body())))
         elif path == "/api/roots":
@@ -536,11 +963,24 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         person = re.fullmatch(r"/api/people/(\d+)", path)
         root = re.fullmatch(r"/api/roots/(\d+)", path)
+        user_match = re.fullmatch(r"/api/users/(\d+)", path)
+
+        user = self._require_user()
+        if user is None:
+            return
 
         def delete(fn, obj_id):
             fn(obj_id)
             return 200, {"success": True}
 
+        if user_match:
+            if not self._require_role(user, {"admin"}):
+                return
+            self._dispatch(lambda: delete(lambda uid: delete_user(uid, user["id"]), int(user_match.group(1))))
+            return
+
+        if not self._require_role(user, {"admin", "editor"}):
+            return
         if person:
             self._dispatch(lambda: delete(delete_person, int(person.group(1))))
         elif root:
@@ -559,6 +999,7 @@ def main():
         sys.exit(1)
 
     ensure_schema()
+    ensure_initial_admin()
 
     server = ThreadingHTTPServer(("localhost", port), Handler)
     print(f"Family tree server running at http://localhost:{port}")

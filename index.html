@@ -213,17 +213,101 @@
 </head>
 <body class="w-full h-screen bg-slate-50 font-sans text-slate-800 m-0 overflow-hidden relative flex bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] select-none">
 
+    <!-- Login screen: shown until /api/me confirms a session. Hidden/shown
+         entirely from JS (see checkAuthAndStart()); the two blocks below
+         start out `hidden` so there's no flash of tree content pre-auth. -->
+    <div id="login-overlay" class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-50">
+        <form id="login-form" class="w-[300px] bg-white rounded-xl shadow-lg border border-slate-200 p-6 flex flex-col gap-3">
+            <h1 class="text-base font-semibold text-slate-800 mb-1">Aile Ağacı — Giriş</h1>
+            <label class="flex flex-col gap-0.5">
+                <span class="text-[10px] font-semibold text-slate-500 uppercase">Kullanıcı Adı</span>
+                <input type="text" id="login-username" autocomplete="username" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
+            </label>
+            <label class="flex flex-col gap-0.5">
+                <span class="text-[10px] font-semibold text-slate-500 uppercase">Şifre</span>
+                <input type="password" id="login-password" autocomplete="current-password" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
+            </label>
+            <div id="login-error" class="text-[11px] text-red-500 hidden"></div>
+            <button type="submit" id="btn-login-submit" class="mt-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-md transition-colors cursor-pointer">Giriş Yap</button>
+        </form>
+    </div>
+
     <!-- Main Tree Content -->
-    <div class="flex-1 relative h-full overflow-hidden">
+    <div id="app-tree-area" class="hidden flex-1 relative h-full overflow-hidden">
         <!-- Displayed people count -->
         <div id="people-count" class="absolute top-4 left-4 z-30 bg-white/95 backdrop-blur text-slate-600 text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-200 pointer-events-none">
             0 kişi
         </div>
 
-        <!-- Light / dark theme toggle -->
-        <button id="btn-theme-toggle" title="Aydınlık / karanlık tema" class="absolute top-4 right-4 z-30 bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
-            <i data-lucide="moon" class="w-4 h-4"></i>
-        </button>
+        <!-- User bar: current user + admin panel entry + logout, next to the theme toggle -->
+        <div class="absolute top-4 right-4 z-30 flex items-center gap-2">
+            <button id="btn-admin-panel" title="Kullanıcı Yönetimi" class="hidden bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+                <i data-lucide="shield" class="w-4 h-4"></i>
+            </button>
+            <span id="current-user-badge" class="bg-white/95 backdrop-blur text-slate-600 text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-200"></span>
+            <button id="btn-logout" title="Çıkış Yap" class="bg-white/95 backdrop-blur text-slate-600 hover:text-red-600 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+                <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+            <!-- Light / dark theme toggle -->
+            <button id="btn-theme-toggle" title="Aydınlık / karanlık tema" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+                <i data-lucide="moon" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <!-- User management (admin only) -->
+        <div id="admin-panel-overlay" class="hidden fixed inset-0 z-[150] items-center justify-center bg-black/40">
+            <div class="w-[460px] max-h-[85vh] bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-200">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-semibold text-slate-800">Kullanıcı Yönetimi</h2>
+                        <button id="btn-admin-panel-close" class="p-1 hover:bg-slate-100 rounded-md text-slate-500 cursor-pointer"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-1 leading-snug">Giriş hesaplarını buradan ekleyip silebilir, rollerini değiştirebilir ve her hesabı soyağacındaki karşılığı olan kişiyle eşleştirebilirsiniz.</p>
+                </div>
+                <div class="px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 leading-relaxed">
+                    <span class="font-semibold text-slate-600">Admin</span> — kullanıcıları yönetir + her şeyi düzenler&nbsp;·&nbsp;
+                    <span class="font-semibold text-slate-600">Editor</span> — kişi/kök ekler, düzenler, siler&nbsp;·&nbsp;
+                    <span class="font-semibold text-slate-600">Viewer</span> — sadece görüntüler, hiçbir şeyi değiştiremez
+                </div>
+                <div class="px-4 pt-3">
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Mevcut Kullanıcılar</span>
+                </div>
+                <div id="admin-user-list" class="flex flex-col overflow-y-auto custom-scrollbar text-sm"></div>
+                <div class="border-t border-slate-200 p-3">
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Yeni Kullanıcı Ekle</span>
+                    <div id="admin-add-error" class="text-[11px] text-red-500 hidden mt-1.5"></div>
+                    <div class="flex flex-col gap-2 mt-1.5">
+                        <div class="flex gap-2">
+                            <label class="flex-1 flex flex-col gap-0.5">
+                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Kullanıcı Adı</span>
+                                <input type="text" id="admin-new-username" placeholder="ör. ayse" class="border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
+                            </label>
+                            <label class="flex-1 flex flex-col gap-0.5">
+                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Şifre (en az 8 karakter)</span>
+                                <input type="password" id="admin-new-password" placeholder="Geçici şifre" class="border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
+                            </label>
+                        </div>
+                        <div class="flex gap-2">
+                            <label class="flex flex-col gap-0.5">
+                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Rol</span>
+                                <select id="admin-new-role" class="border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
+                                    <option value="viewer">Viewer</option>
+                                    <option value="editor">Editor</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </label>
+                            <label class="flex-1 min-w-0 flex flex-col gap-0.5">
+                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Soyağacındaki Kişi (opsiyonel)</span>
+                                <select id="admin-new-person" class="w-full border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
+                                    <option value="">— Yok —</option>
+                                </select>
+                            </label>
+                        </div>
+                        <button id="btn-admin-add-user" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Kullanıcı Ekle</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Error Overlay -->
         <div id="error-overlay" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-red-50 text-red-600 px-6 py-4 rounded-xl shadow-lg border border-red-200 flex items-center gap-3 max-w-2xl">
@@ -250,7 +334,7 @@
     </div>
 
     <!-- Right Sidebar for Controls & Legend -->
-    <div class="w-[200px] h-full bg-slate-50/95 backdrop-blur border-l border-slate-200 shadow-xl flex flex-col p-4 z-20 shrink-0">
+    <div id="app-sidebar" class="hidden w-[200px] h-full bg-slate-50/95 backdrop-blur border-l border-slate-200 shadow-xl flex-col p-4 z-20 shrink-0">
 
         <!-- Person Details Panel -->
         <div id="person-details-panel" class="bg-white rounded-lg shadow-sm border border-slate-200 pt-3 hidden flex-col shrink-0 mb-4">
@@ -345,7 +429,8 @@
 
     <!-- Application Logic -->
     <script type="module">
-    import { getTree, updatePerson, createPerson, deletePerson, createRoot, updateRoot, deleteRoot } from './js/api.js';
+    import { getTree, updatePerson, createPerson, deletePerson, createRoot, updateRoot, deleteRoot,
+             getMe, login, logout, listUsers, createUser, updateUser, deleteUser } from './js/api.js';
     import {
         CARD_WIDTH, ROW_GAP, rootNodeId, rootDbId,
         buildHierarchy, computeTreeLayout, collectAllPersons, pruneForFocus, findPersonNode
@@ -408,6 +493,30 @@
         const minimapCanvas = document.getElementById('minimap-canvas');
         const minimapViewport = document.getElementById('minimap-viewport');
 
+        // Auth / admin panel elements
+        const loginOverlay = document.getElementById('login-overlay');
+        const loginForm = document.getElementById('login-form');
+        const loginUsername = document.getElementById('login-username');
+        const loginPassword = document.getElementById('login-password');
+        const loginError = document.getElementById('login-error');
+        const btnLoginSubmit = document.getElementById('btn-login-submit');
+
+        const appTreeArea = document.getElementById('app-tree-area');
+        const appSidebar = document.getElementById('app-sidebar');
+        const currentUserBadge = document.getElementById('current-user-badge');
+        const btnLogout = document.getElementById('btn-logout');
+
+        const btnAdminPanel = document.getElementById('btn-admin-panel');
+        const adminPanelOverlay = document.getElementById('admin-panel-overlay');
+        const btnAdminPanelClose = document.getElementById('btn-admin-panel-close');
+        const adminUserList = document.getElementById('admin-user-list');
+        const adminAddError = document.getElementById('admin-add-error');
+        const adminNewUsername = document.getElementById('admin-new-username');
+        const adminNewPassword = document.getElementById('admin-new-password');
+        const adminNewRole = document.getElementById('admin-new-role');
+        const adminNewPerson = document.getElementById('admin-new-person');
+        const btnAdminAddUser = document.getElementById('btn-admin-add-user');
+
         // State
         let currentZoom = 1;
         let isFocusMode = false;
@@ -422,6 +531,12 @@
         // The id of whichever person is currently shown in the details panel,
         // so the Edit/Save flow knows which tree node to update.
         let currentDetailsPersonId = null;
+        // Set from /api/me right after login; gates the Edit/Delete/Add
+        // buttons client-side (the server enforces this independently on
+        // every write, so this is UX polish, not the security boundary).
+        let currentUserRole = 'viewer';
+        let currentUserId = null;
+        function canEditTree() { return currentUserRole === 'admin' || currentUserRole === 'editor'; }
 
         // Tidy-tree layout output, keyed by person id. Recomputed by
         // computeTreeLayout() on every render (initial load + focus toggle).
@@ -1750,8 +1865,8 @@
             personDetailsContent.innerHTML = detailsHTML;
             personDetailsPanel.classList.remove('hidden');
             personDetailsPanel.classList.add('flex');
-            if (btnEditDetails) btnEditDetails.classList.remove('hidden');
-            if (btnDeleteDetails) btnDeleteDetails.classList.remove('hidden');
+            if (btnEditDetails) btnEditDetails.classList.toggle('hidden', !canEditTree());
+            if (btnDeleteDetails) btnDeleteDetails.classList.toggle('hidden', !canEditTree());
             lucide.createIcons();
         }
 
@@ -1794,8 +1909,8 @@
             personDetailsContent.innerHTML = html;
             personDetailsPanel.classList.remove('hidden');
             personDetailsPanel.classList.add('flex');
-            if (btnEditDetails) btnEditDetails.classList.remove('hidden');
-            if (btnDeleteDetails) btnDeleteDetails.classList.remove('hidden');
+            if (btnEditDetails) btnEditDetails.classList.toggle('hidden', !canEditTree());
+            if (btnDeleteDetails) btnDeleteDetails.classList.toggle('hidden', !canEditTree());
             lucide.createIcons();
         }
 
@@ -3275,8 +3390,210 @@ ${cardsInner}
         });
         syncThemeIcon();
 
-        // Initial Execution
-        loadAndRenderTree();
+        // --- Auth: login screen, session bootstrap, logout ---
+        function showApp() {
+            loginOverlay.classList.add('hidden');
+            appTreeArea.classList.remove('hidden');
+            appSidebar.classList.remove('hidden');
+            appSidebar.classList.add('flex');
+        }
+
+        function showLogin() {
+            appTreeArea.classList.add('hidden');
+            appSidebar.classList.add('hidden');
+            appSidebar.classList.remove('flex');
+            loginOverlay.classList.remove('hidden');
+            loginPassword.value = '';
+            setTimeout(() => loginUsername.focus(), 0);
+        }
+
+        function applyRoleUI() {
+            if (btnAddPerson) btnAddPerson.classList.toggle('hidden', !canEditTree());
+            if (btnAddRoot) btnAddRoot.classList.toggle('hidden', !canEditTree());
+            if (btnAdminPanel) btnAdminPanel.classList.toggle('hidden', currentUserRole !== 'admin');
+        }
+
+        async function onAuthenticated(user) {
+            currentUserRole = user.role;
+            currentUserId = user.id;
+            const roleLabel = { admin: 'Admin', editor: 'Editor', viewer: 'Viewer' }[user.role] || user.role;
+            currentUserBadge.textContent = `${user.username} · ${roleLabel}`;
+            applyRoleUI();
+            showApp();
+            await loadAndRenderTree();
+        }
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            loginError.classList.add('hidden');
+            btnLoginSubmit.disabled = true;
+            btnLoginSubmit.textContent = 'Giriş yapılıyor...';
+            try {
+                const user = await login(loginUsername.value.trim(), loginPassword.value);
+                await onAuthenticated(user);
+            } catch (err) {
+                loginError.textContent = err.message;
+                loginError.classList.remove('hidden');
+            } finally {
+                btnLoginSubmit.disabled = false;
+                btnLoginSubmit.textContent = 'Giriş Yap';
+            }
+        });
+
+        btnLogout.addEventListener('click', async () => {
+            await logout();
+            currentUserRole = 'viewer';
+            showLogin();
+        });
+
+        // --- Admin panel: user list, role changes, soyağacı kişisi bağlama ---
+        function personLabel(id) {
+            if (id == null) return null;
+            const match = collectAllPersons(originalRoots).map(({ person }) => person).find(p => Number(p.id) === Number(id));
+            if (!match) return `#${id}`;
+            return `${match.name || ''} ${(match.attributes && match.attributes.surname) || ''}`.trim() || `#${id}`;
+        }
+
+        function populateAdminPersonSelect(selectEl, selectedId) {
+            selectEl.innerHTML = buildPersonOptions(null, selectedId);
+        }
+
+        async function renderAdminUserList() {
+            const users = await listUsers();
+            const adminCount = users.filter(x => x.role === 'admin').length;
+            adminUserList.innerHTML = '';
+            users.forEach(u => {
+                const isSelf = Number(u.id) === Number(currentUserId);
+                const isLastAdmin = u.role === 'admin' && adminCount <= 1;
+                const createdDate = (u.createdAt || '').split(' ')[0];
+                const row = document.createElement('div');
+                row.className = 'flex flex-col gap-1.5 px-4 py-3 border-b border-slate-200';
+                row.innerHTML = `
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="font-medium text-slate-800 truncate">
+                            ${escapeHTML(u.username)}
+                            ${isSelf ? '<span class="font-normal text-[10px] text-blue-600">(Siz)</span>' : ''}
+                        </span>
+                        <div class="flex items-center gap-2 shrink-0">
+                            ${createdDate ? `<span class="text-[10px] text-slate-400" title="Hesap oluşturulma tarihi">${escapeHTML(createdDate)}</span>` : ''}
+                            <button class="btn-admin-delete p-1 rounded cursor-pointer ${(isSelf || isLastAdmin) ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:bg-red-50 hover:text-red-500'}" ${(isSelf || isLastAdmin) ? 'disabled' : ''} title="${isSelf ? 'Kendi hesabınızı silemezsiniz' : isLastAdmin ? 'Sistemdeki tek admin — önce başka birini admin yapmadan silinemez' : 'Kullanıcıyı sil'}"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="flex flex-col gap-0.5">
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase">Rol</span>
+                            <select class="admin-role-select border border-slate-300 rounded-md px-1.5 py-1 text-xs bg-white text-slate-800 outline-none" ${isLastAdmin ? 'disabled title="Sistemdeki tek admin — rolü değiştirilemez"' : ''}>
+                                <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+                                <option value="editor" ${u.role === 'editor' ? 'selected' : ''}>Editor</option>
+                                <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+                            </select>
+                        </label>
+                        <label class="flex-1 min-w-0 flex flex-col gap-0.5">
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase">Soyağacındaki Kişi</span>
+                            <select class="admin-person-select w-full border border-slate-300 rounded-md px-1.5 py-1 text-xs bg-white text-slate-800 outline-none"></select>
+                        </label>
+                    </div>
+                    <div class="admin-row-error text-[10px] text-red-500 hidden"></div>
+                `;
+                const personSelect = row.querySelector('.admin-person-select');
+                populateAdminPersonSelect(personSelect, u.personId);
+                const errEl = row.querySelector('.admin-row-error');
+                const showRowError = (msg) => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+
+                row.querySelector('.admin-role-select').addEventListener('change', async (e) => {
+                    try {
+                        await updateUser(u.id, { role: e.target.value });
+                        errEl.classList.add('hidden');
+                    } catch (err) {
+                        e.target.value = u.role;
+                        showRowError(err.message);
+                    }
+                });
+                personSelect.addEventListener('change', async (e) => {
+                    const personId = e.target.value ? Number(e.target.value) : null;
+                    try {
+                        await updateUser(u.id, { personId });
+                        errEl.classList.add('hidden');
+                    } catch (err) {
+                        populateAdminPersonSelect(personSelect, u.personId);
+                        showRowError(err.message);
+                    }
+                });
+                row.querySelector('.btn-admin-delete').addEventListener('click', async () => {
+                    if (!confirm(`"${u.username}" kullanıcısını silmek istediğinize emin misiniz?`)) return;
+                    try {
+                        await deleteUser(u.id);
+                        await renderAdminUserList();
+                    } catch (err) {
+                        showRowError(err.message);
+                    }
+                });
+
+                adminUserList.appendChild(row);
+            });
+            lucide.createIcons();
+        }
+
+        async function openAdminPanel() {
+            adminAddError.classList.add('hidden');
+            adminNewUsername.value = '';
+            adminNewPassword.value = '';
+            adminNewRole.value = 'viewer';
+            populateAdminPersonSelect(adminNewPerson, null);
+            adminPanelOverlay.classList.remove('hidden');
+            adminPanelOverlay.classList.add('flex');
+            try {
+                await renderAdminUserList();
+            } catch (err) {
+                adminAddError.textContent = err.message;
+                adminAddError.classList.remove('hidden');
+            }
+        }
+
+        function closeAdminPanel() {
+            adminPanelOverlay.classList.add('hidden');
+            adminPanelOverlay.classList.remove('flex');
+        }
+
+        if (btnAdminPanel) btnAdminPanel.addEventListener('click', openAdminPanel);
+        if (btnAdminPanelClose) btnAdminPanelClose.addEventListener('click', closeAdminPanel);
+        adminPanelOverlay.addEventListener('click', (e) => { if (e.target === adminPanelOverlay) closeAdminPanel(); });
+
+        btnAdminAddUser.addEventListener('click', async () => {
+            adminAddError.classList.add('hidden');
+            const username = adminNewUsername.value.trim();
+            const password = adminNewPassword.value;
+            const role = adminNewRole.value;
+            const personId = adminNewPerson.value ? Number(adminNewPerson.value) : null;
+            btnAdminAddUser.disabled = true;
+            try {
+                await createUser({ username, password, role, personId });
+                adminNewUsername.value = '';
+                adminNewPassword.value = '';
+                adminNewRole.value = 'viewer';
+                populateAdminPersonSelect(adminNewPerson, null);
+                await renderAdminUserList();
+            } catch (err) {
+                adminAddError.textContent = err.message;
+                adminAddError.classList.remove('hidden');
+            } finally {
+                btnAdminAddUser.disabled = false;
+            }
+        });
+
+        // Initial Execution: only reveal the app once a session is confirmed.
+        (async () => {
+            try {
+                const user = await getMe();
+                if (user) {
+                    await onAuthenticated(user);
+                } else {
+                    showLogin();
+                }
+            } catch (err) {
+                showLogin();
+            }
+        })();
     });
     </script>
 </body>

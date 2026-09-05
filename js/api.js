@@ -4,6 +4,89 @@
 
 const API_BASE = '/api';
 
+export async function getMe() {
+    const res = await fetch(`${API_BASE}/me`);
+    if (res.status === 401) return null;
+    if (!res.ok) {
+        throw new Error(`Oturum kontrol edilemedi (${res.status}: ${res.statusText})`);
+    }
+    return res.json();
+}
+
+export async function login(username, password) {
+    const res = await fetch(`${API_BASE}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Giriş başarısız (${res.status})`);
+    }
+    return res.json();
+}
+
+export async function logout() {
+    await fetch(`${API_BASE}/logout`, { method: 'POST' });
+}
+
+export async function changeMyPassword(currentPassword, password) {
+    const res = await fetch(`${API_BASE}/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, password })
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Şifre değiştirilemedi (${res.status})`);
+    }
+    return res.json();
+}
+
+export async function listUsers() {
+    const res = await fetch(`${API_BASE}/users`);
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Kullanıcılar yüklenemedi (${res.status})`);
+    }
+    return res.json();
+}
+
+export async function createUser(fields) {
+    const res = await fetch(`${API_BASE}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields)
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Kullanıcı eklenemedi (${res.status})`);
+    }
+    return res.json();
+}
+
+export async function updateUser(id, fields) {
+    const res = await fetch(`${API_BASE}/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields)
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Kullanıcı güncellenemedi (${res.status})`);
+    }
+    return res.json();
+}
+
+export async function deleteUser(id) {
+    const res = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Kullanıcı silinemedi (${res.status})`);
+    }
+    return res.json();
+}
+
 export async function getTree() {
     const res = await fetch(`${API_BASE}/tree`);
     if (!res.ok) {
