@@ -101,6 +101,10 @@ import { generateCardHTML, cardToSvgFragment } from './card-view.js';
         // State
         let currentZoom = 1;
         let isFocusMode = false;
+        // Focus modunda en son merkeze alınan kişinin id'si — focus'tan
+        // çıkınca o kişiye geri kaydırmak için kullanılır (panel kapatılıp
+        // .highlighted sınıfı silinse bile çalışır).
+        let lastFocusSelfId = null;
         // "İki kişi arası bağ" feature: null | 'picking' (choosing the two
         // people) | 'showing' (the connecting path is rendered focus-style).
         let relationshipMode = null;
@@ -1049,6 +1053,8 @@ import { generateCardHTML, cardToSvgFragment } from './card-view.js';
                 // on computeBloodline) — re-render pruned to exactly that, and
                 // apply highlight classes fresh rather than reusing whatever
                 // the (possibly stale/limited) DOM had before the re-render.
+                lastFocusSelfId = selfId;
+
                 const bloodline = computeBloodline(selfId);
                 await renderTreeFromHierarchy(pruneForFocus(originalRoots, bloodline.all));
 
@@ -1085,7 +1091,12 @@ import { generateCardHTML, cardToSvgFragment } from './card-view.js';
                     currentZoom = 1;
                     updateZoomStyle();
                     
-                    const targetCard = document.querySelector('.tree-node-card.highlighted');
+                    // Focus'tan çıkarken seçili kişiye kaydır. Panel kapatılarak
+                    // çıkıldıysa .highlighted sınıfı silinmiş olur; o durumda
+                    // en son merkeze alınan kişinin kaydedilen id'sine düş.
+                    const targetCard = document.querySelector('.tree-node-card.highlighted')
+                        || (lastFocusSelfId != null
+                            && document.querySelector(`.tree-node-card[data-id="${lastFocusSelfId}"]`));
                     if (targetCard) {
                         const cardRect = targetCard.getBoundingClientRect();
                         const treeRect = treeTransform.getBoundingClientRect();
