@@ -28,6 +28,8 @@ There are three roles:
 
 Each account can optionally be linked to a person in the tree (its `personId`), set from the admin panel — this is just bookkeeping ("who is this login for") and doesn't affect tree logic.
 
+Any logged-in user can change their own password (key icon, top right — needs the current password). Admins can also reset any account's password from the user-management panel ("Şifre sıfırla" under each user, no current password needed) — useful if someone forgets theirs.
+
 ## Running this on the internet
 
 `server.py` only ever speaks plain HTTP — for real internet exposure, put it behind a reverse proxy (nginx, Caddy, etc.) that terminates HTTPS, then set `FAMILYTREE_SECURE_COOKIES=1` when starting the server so the session cookie is marked `Secure`. Without that env var the cookie still works over plain HTTP (e.g. local/LAN use), but shouldn't be relied on over the open internet.

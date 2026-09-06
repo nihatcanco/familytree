@@ -245,6 +245,9 @@
                 <i data-lucide="shield" class="w-4 h-4"></i>
             </button>
             <span id="current-user-badge" class="bg-white/95 backdrop-blur text-slate-600 text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-200"></span>
+            <button id="btn-change-password" title="Şifre Değiştir" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+                <i data-lucide="key-round" class="w-4 h-4"></i>
+            </button>
             <button id="btn-logout" title="Çıkış Yap" class="bg-white/95 backdrop-blur text-slate-600 hover:text-red-600 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
                 <i data-lucide="log-out" class="w-4 h-4"></i>
             </button>
@@ -307,6 +310,31 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- Change my own password -->
+        <div id="change-password-overlay" class="hidden fixed inset-0 z-[150] items-center justify-center bg-black/40">
+            <form id="change-password-form" class="w-[300px] bg-white rounded-xl shadow-lg border border-slate-200 p-6 flex flex-col gap-3">
+                <div class="flex items-center justify-between mb-1">
+                    <h2 class="text-sm font-semibold text-slate-800">Şifre Değiştir</h2>
+                    <button type="button" id="btn-change-password-close" class="p-1 hover:bg-slate-100 rounded-md text-slate-500 cursor-pointer"><i data-lucide="x" class="w-4 h-4"></i></button>
+                </div>
+                <label class="flex flex-col gap-0.5">
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Mevcut Şifre</span>
+                    <input type="password" id="change-password-current" autocomplete="current-password" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
+                </label>
+                <label class="flex flex-col gap-0.5">
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Yeni Şifre (en az 8 karakter)</span>
+                    <input type="password" id="change-password-new" autocomplete="new-password" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
+                </label>
+                <label class="flex flex-col gap-0.5">
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Yeni Şifre (tekrar)</span>
+                    <input type="password" id="change-password-confirm" autocomplete="new-password" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
+                </label>
+                <div id="change-password-error" class="text-[11px] text-red-500 hidden"></div>
+                <div id="change-password-success" class="text-[11px] text-slate-500 hidden">Şifreniz güncellendi.</div>
+                <button type="submit" id="btn-change-password-submit" class="mt-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-md transition-colors cursor-pointer">Kaydet</button>
+            </form>
         </div>
 
         <!-- Error Overlay -->
@@ -430,7 +458,7 @@
     <!-- Application Logic -->
     <script type="module">
     import { getTree, updatePerson, createPerson, deletePerson, createRoot, updateRoot, deleteRoot,
-             getMe, login, logout, listUsers, createUser, updateUser, deleteUser } from './js/api.js';
+             getMe, login, logout, changeMyPassword, listUsers, createUser, updateUser, deleteUser } from './js/api.js';
     import {
         CARD_WIDTH, ROW_GAP, rootNodeId, rootDbId,
         buildHierarchy, computeTreeLayout, collectAllPersons, pruneForFocus, findPersonNode
@@ -505,6 +533,17 @@
         const appSidebar = document.getElementById('app-sidebar');
         const currentUserBadge = document.getElementById('current-user-badge');
         const btnLogout = document.getElementById('btn-logout');
+
+        const btnChangePassword = document.getElementById('btn-change-password');
+        const changePasswordOverlay = document.getElementById('change-password-overlay');
+        const changePasswordForm = document.getElementById('change-password-form');
+        const changePasswordCurrent = document.getElementById('change-password-current');
+        const changePasswordNew = document.getElementById('change-password-new');
+        const changePasswordConfirm = document.getElementById('change-password-confirm');
+        const changePasswordError = document.getElementById('change-password-error');
+        const changePasswordSuccess = document.getElementById('change-password-success');
+        const btnChangePasswordClose = document.getElementById('btn-change-password-close');
+        const btnChangePasswordSubmit = document.getElementById('btn-change-password-submit');
 
         const btnAdminPanel = document.getElementById('btn-admin-panel');
         const adminPanelOverlay = document.getElementById('admin-panel-overlay');
@@ -3446,6 +3485,57 @@ ${cardsInner}
             showLogin();
         });
 
+        // --- Change my own password ---
+        function openChangePassword() {
+            changePasswordForm.reset();
+            changePasswordError.classList.add('hidden');
+            changePasswordSuccess.classList.add('hidden');
+            changePasswordOverlay.classList.remove('hidden');
+            changePasswordOverlay.classList.add('flex');
+            changePasswordCurrent.focus();
+        }
+
+        function closeChangePassword() {
+            changePasswordOverlay.classList.add('hidden');
+            changePasswordOverlay.classList.remove('flex');
+        }
+
+        btnChangePassword.addEventListener('click', openChangePassword);
+        btnChangePasswordClose.addEventListener('click', closeChangePassword);
+        changePasswordOverlay.addEventListener('click', (e) => { if (e.target === changePasswordOverlay) closeChangePassword(); });
+
+        changePasswordForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            changePasswordError.classList.add('hidden');
+            changePasswordSuccess.classList.add('hidden');
+
+            const current = changePasswordCurrent.value;
+            const nextPassword = changePasswordNew.value;
+            const confirmPassword = changePasswordConfirm.value;
+            if (nextPassword.length < 8) {
+                changePasswordError.textContent = 'Yeni şifre en az 8 karakter olmalıdır.';
+                changePasswordError.classList.remove('hidden');
+                return;
+            }
+            if (nextPassword !== confirmPassword) {
+                changePasswordError.textContent = 'Yeni şifreler eşleşmiyor.';
+                changePasswordError.classList.remove('hidden');
+                return;
+            }
+
+            btnChangePasswordSubmit.disabled = true;
+            try {
+                await changeMyPassword(current, nextPassword);
+                changePasswordSuccess.classList.remove('hidden');
+                setTimeout(closeChangePassword, 1200);
+            } catch (err) {
+                changePasswordError.textContent = err.message;
+                changePasswordError.classList.remove('hidden');
+            } finally {
+                btnChangePasswordSubmit.disabled = false;
+            }
+        });
+
         // --- Admin panel: user list, role changes, soyağacı kişisi bağlama ---
         function personLabel(id) {
             if (id == null) return null;
@@ -3493,12 +3583,41 @@ ${cardsInner}
                             <select class="admin-person-select w-full border border-slate-300 rounded-md px-1.5 py-1 text-xs bg-white text-slate-800 outline-none"></select>
                         </label>
                     </div>
+                    <button type="button" class="btn-admin-reset-password self-start text-[10px] text-blue-600 hover:underline cursor-pointer">Şifre sıfırla</button>
+                    <div class="admin-reset-password-box hidden flex gap-2">
+                        <input type="password" class="admin-reset-password-input flex-1 min-w-0 border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white text-slate-800" placeholder="Yeni şifre (en az 8 karakter)">
+                        <button type="button" class="btn-admin-reset-password-save bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 rounded-md cursor-pointer shrink-0">Kaydet</button>
+                    </div>
                     <div class="admin-row-error text-[10px] text-red-500 hidden"></div>
                 `;
                 const personSelect = row.querySelector('.admin-person-select');
                 populateAdminPersonSelect(personSelect, u.personId);
                 const errEl = row.querySelector('.admin-row-error');
                 const showRowError = (msg) => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+
+                const resetBox = row.querySelector('.admin-reset-password-box');
+                const resetInput = row.querySelector('.admin-reset-password-input');
+                row.querySelector('.btn-admin-reset-password').addEventListener('click', () => {
+                    resetBox.classList.toggle('hidden');
+                    resetBox.classList.toggle('flex');
+                    if (!resetBox.classList.contains('hidden')) resetInput.focus();
+                });
+                row.querySelector('.btn-admin-reset-password-save').addEventListener('click', async () => {
+                    const newPassword = resetInput.value;
+                    if (newPassword.length < 8) {
+                        showRowError('Şifre en az 8 karakter olmalıdır.');
+                        return;
+                    }
+                    try {
+                        await updateUser(u.id, { password: newPassword });
+                        errEl.classList.add('hidden');
+                        resetInput.value = '';
+                        resetBox.classList.add('hidden');
+                        resetBox.classList.remove('flex');
+                    } catch (err) {
+                        showRowError(err.message);
+                    }
+                });
 
                 row.querySelector('.admin-role-select').addEventListener('change', async (e) => {
                     try {
