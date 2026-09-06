@@ -1,0 +1,476 @@
+/* ============================================================================
+   app.css — the app's entire stylesheet.
+
+   Replaces the Tailwind Play CDN (`cdn.tailwindcss.com`), which is explicitly
+   not for production and injected its utility rules asynchronously — the sole
+   reason the old code needed the `waitForCardStyles()` rAF-polling hack before
+   it could measure a card.
+
+   Only the ~230 utilities this app actually uses are hand-authored below,
+   with Tailwind's own values (slate/blue/red/amber palette, 0.25rem spacing
+   scale, etc.). Everything else — the tidy-tree layout rules, the family-root
+   diamond, and the dark theme — is the same CSS that used to live in the
+   <style> block in index.html.
+   ============================================================================ */
+
+:root {
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif,
+        "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+        "Liberation Mono", monospace;
+}
+
+/* --- Preflight (trimmed from Tailwind's) --------------------------------- */
+*, ::before, ::after {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    border-color: #e2e8f0;
+}
+html {
+    -webkit-text-size-adjust: 100%;
+    font-family: var(--font-sans);
+    line-height: 1.5;
+}
+body { margin: 0; line-height: inherit; }
+h1, h2, h3, h4, h5, h6 { font-size: inherit; font-weight: inherit; margin: 0; }
+p { margin: 0; }
+a { color: inherit; text-decoration: inherit; }
+button, input, optgroup, select, textarea {
+    font-family: inherit;
+    font-size: 100%;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+    margin: 0;
+    padding: 0;
+}
+button, select { text-transform: none; }
+button, [type="button"], [type="submit"] {
+    -webkit-appearance: button;
+    background-color: transparent;
+    background-image: none;
+}
+button:disabled { cursor: default; }
+:-moz-focusring { outline: auto; }
+textarea { resize: vertical; }
+input::placeholder, textarea::placeholder { opacity: 1; color: #94a3b8; }
+img, svg, video, canvas { display: block; vertical-align: middle; }
+img, video { max-width: 100%; height: auto; }
+[hidden] { display: none; }
+
+/* --- Layout / display --------------------------------------------------- */
+.hidden { display: none !important; }
+.flex { display: flex; }
+.block { display: block; }
+.inline-block { display: inline-block; }
+.flex-col { flex-direction: column; }
+.flex-1 { flex: 1 1 0%; }
+.shrink-0, .flex-shrink-0 { flex-shrink: 0; }
+.items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.items-stretch { align-items: stretch; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.self-start { align-self: flex-start; }
+
+.relative { position: relative; }
+.absolute { position: absolute; }
+.fixed { position: fixed; }
+.inset-0 { inset: 0; }
+.top-0 { top: 0; }
+.top-1 { top: 0.25rem; }
+.top-4 { top: 1rem; }
+.left-0 { left: 0; }
+.left-2 { left: 0.5rem; }
+.left-4 { left: 1rem; }
+.left-1\/2 { left: 50%; }
+.right-2 { right: 0.5rem; }
+.right-4 { right: 1rem; }
+
+.z-0 { z-index: 0; }
+.z-10 { z-index: 10; }
+.z-20 { z-index: 20; }
+.z-30 { z-index: 30; }
+.z-50 { z-index: 50; }
+.z-\[150\] { z-index: 150; }
+.z-\[200\] { z-index: 200; }
+
+.overflow-hidden { overflow: hidden; }
+.overflow-auto { overflow: auto; }
+.overflow-visible { overflow: visible; }
+.overflow-y-auto { overflow-y: auto; }
+
+/* --- Sizing ------------------------------------------------------------- */
+.w-full { width: 100%; }
+.w-max { width: max-content; }
+.w-3 { width: 0.75rem; }
+.w-3\.5 { width: 0.875rem; }
+.w-4 { width: 1rem; }
+.w-5 { width: 1.25rem; }
+.w-8 { width: 2rem; }
+.w-10 { width: 2.5rem; }
+.w-12 { width: 3rem; }
+.w-16 { width: 4rem; }
+.w-\[200px\] { width: 200px; }
+.w-\[220px\] { width: 220px; }
+.w-\[300px\] { width: 300px; }
+.w-\[460px\] { width: 460px; }
+
+.h-3 { height: 0.75rem; }
+.h-3\.5 { height: 0.875rem; }
+.h-4 { height: 1rem; }
+.h-5 { height: 1.25rem; }
+.h-8 { height: 2rem; }
+.h-10 { height: 2.5rem; }
+.h-12 { height: 3rem; }
+.h-16 { height: 4rem; }
+.h-fit { height: fit-content; }
+.h-full { height: 100%; }
+.h-screen { height: 100vh; }
+
+.min-w-0 { min-width: 0; }
+.min-h-0 { min-height: 0; }
+.min-h-\[10em\] { min-height: 10em; }
+.max-h-\[85vh\] { max-height: 85vh; }
+.max-w-2xl { max-width: 42rem; }
+.aspect-square { aspect-ratio: 1 / 1; }
+
+/* --- Spacing ---------------------------------------------------------- */
+.mx-auto { margin-left: auto; margin-right: auto; }
+.m-0 { margin: 0; }
+.-mx-1\.5 { margin-left: -0.375rem; margin-right: -0.375rem; }
+.mt-0\.5 { margin-top: 0.125rem; }
+.mt-1 { margin-top: 0.25rem; }
+.mt-1\.5 { margin-top: 0.375rem; }
+.mt-2\.5 { margin-top: 0.625rem; }
+.mt-20 { margin-top: 5rem; }
+.mb-1 { margin-bottom: 0.25rem; }
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-3 { margin-bottom: 0.75rem; }
+.mb-4 { margin-bottom: 1rem; }
+
+.p-1 { padding: 0.25rem; }
+.p-1\.5 { padding: 0.375rem; }
+.p-2 { padding: 0.5rem; }
+.p-3 { padding: 0.75rem; }
+.p-4 { padding: 1rem; }
+.p-6 { padding: 1.5rem; }
+.p-8 { padding: 2rem; }
+.px-1\.5 { padding-left: 0.375rem; padding-right: 0.375rem; }
+.px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+.px-2\.5 { padding-left: 0.625rem; padding-right: 0.625rem; }
+.px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+.px-4 { padding-left: 1rem; padding-right: 1rem; }
+.px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+.py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.py-1\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+.py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+.py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+.pt-3 { padding-top: 0.75rem; }
+.pb-1 { padding-bottom: 0.25rem; }
+.pb-2 { padding-bottom: 0.5rem; }
+.pl-1 { padding-left: 0.25rem; }
+.pr-1 { padding-right: 0.25rem; }
+
+.gap-0\.5 { gap: 0.125rem; }
+.gap-1 { gap: 0.25rem; }
+.gap-1\.5 { gap: 0.375rem; }
+.gap-2 { gap: 0.5rem; }
+.gap-3 { gap: 0.75rem; }
+
+/* --- Typography ------------------------------------------------------- */
+.font-sans { font-family: var(--font-sans); }
+.font-mono { font-family: var(--font-mono); }
+.text-\[9px\] { font-size: 9px; }
+.text-\[10px\] { font-size: 10px; }
+.text-\[11px\] { font-size: 11px; }
+.text-\[13px\] { font-size: 13px; }
+.text-xs { font-size: 0.75rem; line-height: 1rem; }
+.text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+.text-base { font-size: 1rem; line-height: 1.5rem; }
+.text-lg { font-size: 1.125rem; line-height: 1.75rem; }
+.text-xl { font-size: 1.25rem; line-height: 1.75rem; }
+.font-normal { font-weight: 400; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.uppercase { text-transform: uppercase; }
+.capitalize { text-transform: capitalize; }
+.tracking-tight { letter-spacing: -0.025em; }
+.leading-none { line-height: 1; }
+.leading-tight { line-height: 1.25; }
+.leading-snug { line-height: 1.375; }
+.leading-relaxed { line-height: 1.625; }
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.break-words { overflow-wrap: break-word; }
+.whitespace-normal { white-space: normal; }
+.underline { text-decoration-line: underline; }
+
+/* --- Colours --------------------------------------------------------- */
+.text-white { color: #fff; }
+.text-slate-300 { color: #cbd5e1; }
+.text-slate-400 { color: #94a3b8; }
+.text-slate-500 { color: #64748b; }
+.text-slate-600 { color: #475569; }
+.text-slate-700 { color: #334155; }
+.text-slate-800 { color: #1e293b; }
+.text-slate-900 { color: #0f172a; }
+.text-blue-600 { color: #2563eb; }
+.text-red-500 { color: #ef4444; }
+.text-red-600 { color: #dc2626; }
+
+.bg-transparent { background-color: transparent; }
+.bg-white { background-color: #fff; }
+.bg-white\/95 { background-color: rgb(255 255 255 / 0.95); }
+.bg-white\/70 { background-color: rgb(255 255 255 / 0.7); }
+.bg-slate-50 { background-color: #f8fafc; }
+.bg-slate-50\/95 { background-color: rgb(248 250 252 / 0.95); }
+.bg-slate-100 { background-color: #f1f5f9; }
+.bg-slate-200 { background-color: #e2e8f0; }
+.bg-slate-600 { background-color: #475569; }
+.bg-blue-50 { background-color: #eff6ff; }
+.bg-blue-500\/20 { background-color: rgb(59 130 246 / 0.2); }
+.bg-blue-600 { background-color: #2563eb; }
+.bg-red-50 { background-color: #fef2f2; }
+.bg-amber-50 { background-color: #fffbeb; }
+.bg-black\/40 { background-color: rgb(0 0 0 / 0.4); }
+.bg-\[url\(\'https\:\/\/www\.transparenttextures\.com\/patterns\/cubes\.png\'\)\] {
+    background-image: url('https://www.transparenttextures.com/patterns/cubes.png');
+}
+
+.border-slate-100 { border-color: #f1f5f9; }
+.border-slate-200 { border-color: #e2e8f0; }
+.border-slate-300 { border-color: #cbd5e1; }
+.border-blue-500 { border-color: #3b82f6; }
+.border-red-200 { border-color: #fecaca; }
+.border-amber-100 { border-color: #fef3c7; }
+
+/* --- Borders / radius / shadow -------------------------------------- */
+.border { border-width: 1px; }
+.border-2 { border-width: 2px; }
+.border-t { border-top-width: 1px; }
+.border-b { border-bottom-width: 1px; }
+.border-l { border-left-width: 1px; }
+.rounded { border-radius: 0.25rem; }
+.rounded-md { border-radius: 0.375rem; }
+.rounded-lg { border-radius: 0.5rem; }
+.rounded-xl { border-radius: 0.75rem; }
+.rounded-full { border-radius: 9999px; }
+.shadow-sm { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }
+.shadow-lg { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
+.shadow-xl { box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); }
+.shadow-\[0_0_0_9999px_rgba\(0\,0\,0\,0\.25\)\] { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.25); }
+
+/* --- Effects / misc ------------------------------------------------- */
+.opacity-20 { opacity: 0.2; }
+.opacity-70 { opacity: 0.7; }
+.object-cover { object-fit: cover; }
+.pointer-events-none { pointer-events: none; }
+.select-none { user-select: none; }
+.cursor-pointer { cursor: pointer; }
+.cursor-grab { cursor: grab; }
+.cursor-grabbing { cursor: grabbing; }
+.cursor-crosshair { cursor: crosshair; }
+.cursor-not-allowed { cursor: not-allowed; }
+.outline-none { outline: 2px solid transparent; outline-offset: 2px; }
+.resize-none { resize: none; }
+.backdrop-blur { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.-translate-x-1\/2 { transform: translateX(-50%); }
+.rotate-45 { transform: rotate(45deg); }
+.transition-colors {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+.transition-opacity {
+    transition-property: opacity;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+.transition-none { transition-property: none; }
+.animate-spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- Hover / focus variants --------------------------------------- */
+.hover\:bg-blue-700:hover { background-color: #1d4ed8; }
+.hover\:bg-slate-100:hover { background-color: #f1f5f9; }
+.hover\:bg-slate-200:hover { background-color: #e2e8f0; }
+.hover\:bg-red-50:hover { background-color: #fef2f2; }
+.hover\:text-slate-600:hover { color: #475569; }
+.hover\:text-slate-900:hover { color: #0f172a; }
+.hover\:text-red-500:hover { color: #ef4444; }
+.hover\:text-red-600:hover { color: #dc2626; }
+.hover\:opacity-80:hover { opacity: 0.8; }
+.hover\:underline:hover { text-decoration-line: underline; }
+.focus\:border-blue-400:focus { border-color: #60a5fa; }
+
+/* ============================================================================
+   App-specific styles (moved verbatim from the old <style> block)
+   ============================================================================ */
+
+/* Cards are laid out with computed absolute positions (see the tidy-tree
+   layout in js/tree-model.js), not nested flexbox — every connector line is
+   an SVG path in #cross-tree-links. */
+.tree-container {
+    display: inline-block;
+    will-change: transform;
+}
+
+.tree-node-card {
+    transition: all 0.2s ease-in-out;
+}
+.tree-node-card:not(.root-node):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+.tree-node-card.highlighted:not(.root-node) {
+    border-color: var(--highlight-color, #3b82f6);
+    box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(59, 130, 246, 0.3));
+}
+.tree-node-card.highlighted-gen:not(.root-node) {
+    border-color: var(--highlight-color);
+}
+
+/* Hide scrollbars */
+.custom-scrollbar::-webkit-scrollbar { display: none; }
+.custom-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Highlighted bloodline-path lines (SVG paths): heavier stroke + soft glow,
+   keeping the family's own colour. */
+.svg-glow-line {
+    stroke-width: 4px !important;
+    filter: drop-shadow(0 0 4px rgba(15, 23, 42, 0.45));
+}
+
+.tree-node-card.highlighted-spouse {
+    border-color: var(--highlight-color, #94a3b8);
+}
+
+/* "İki kişi arası bağ" — the two people being picked for the relationship
+   path. Its own class so search / legend clears don't wipe the pick markers
+   while the user is still choosing. */
+.tree-node-card.rel-pick:not(.root-node) {
+    border-color: var(--rel-pick-color, #2563eb) !important;
+    box-shadow: 0 0 0 4px var(--rel-pick-shadow, rgba(37, 130, 246, 0.35)) !important;
+}
+.root-node.rel-pick .root-diamond {
+    border-color: var(--rel-pick-color, #2563eb) !important;
+    box-shadow: 0 0 0 4px var(--rel-pick-shadow, rgba(37, 130, 246, 0.35)) !important;
+}
+
+/* Family root: a diamond showing only its title. Kept 220px wide so the
+   tidy-tree X math (CARD_WIDTH) and connector centre-x stay correct. */
+.root-node {
+    width: 220px;
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.root-node .root-diamond {
+    width: 92px;
+    height: 92px;
+    transform: rotate(45deg);
+    border-radius: 8px;
+    background: #475569;
+    border: 2px solid #334155;
+    transition: box-shadow 0.2s ease-in-out, background 0.2s, border-color 0.2s;
+}
+.root-node .root-title {
+    position: absolute;
+    left: 0; right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #fff;
+    pointer-events: none;
+    padding: 0 44px;
+    overflow-wrap: anywhere;
+    line-height: 1.15;
+}
+.root-node .root-diamond:hover {
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.18);
+}
+.root-node.highlighted .root-diamond,
+.root-node.highlighted-gen .root-diamond {
+    border-color: var(--highlight-color, #3b82f6);
+    box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(59, 130, 246, 0.35));
+}
+
+/* ============================================================
+   Dark mode. Every hardcoded `bg-white` / `text-slate-*` / … in the markup
+   and JS-generated cards is remapped here in one place by prefixing the
+   utility with `html.dark`.
+   ============================================================ */
+html.dark { color-scheme: dark; }
+
+html.dark body {
+    background-color: #0f172a;
+    background-image:
+        linear-gradient(rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.8)),
+        url('https://www.transparenttextures.com/patterns/cubes.png');
+}
+
+html.dark .bg-white { background-color: #1e293b; }
+html.dark .bg-white\/95 { background-color: rgba(30, 41, 59, 0.95); }
+html.dark .bg-white\/70 { background-color: rgba(30, 41, 59, 0.55); }
+html.dark .bg-slate-50 { background-color: #0f172a; }
+html.dark .bg-slate-50\/95 { background-color: rgba(15, 23, 42, 0.95); }
+html.dark .bg-slate-100 { background-color: #334155; }
+html.dark .bg-slate-200 { background-color: #475569; }
+html.dark .bg-slate-600 { background-color: #64748b; }
+html.dark .hover\:bg-slate-100:hover { background-color: #334155; }
+html.dark .hover\:bg-slate-200:hover { background-color: #3f4d61; }
+
+html.dark .text-slate-900 { color: #f1f5f9; }
+html.dark .text-slate-800 { color: #e2e8f0; }
+html.dark .text-slate-700 { color: #cbd5e1; }
+html.dark .text-slate-600 { color: #b6c1d0; }
+html.dark .text-slate-500 { color: #94a3b8; }
+html.dark .text-slate-400 { color: #7c8aa0; }
+html.dark .text-slate-300 { color: #64748b; }
+html.dark .hover\:text-slate-600:hover { color: #cbd5e1; }
+html.dark input::placeholder, html.dark textarea::placeholder { color: #64748b; }
+html.dark .placeholder-slate-400::placeholder { color: #64748b; }
+
+html.dark .border-slate-100 { border-color: #2a3648; }
+html.dark .border-slate-200 { border-color: #334155; }
+html.dark .border-slate-300 { border-color: #475569; }
+
+html.dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.12); }
+html.dark .border-amber-100 { border-color: rgba(245, 158, 11, 0.28); }
+
+html.dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.14); }
+html.dark .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.18); }
+html.dark .border-red-200 { border-color: rgba(239, 68, 68, 0.35); }
+html.dark .text-red-600 { color: #f87171; }
+html.dark .text-red-500 { color: #f87171; }
+html.dark .hover\:text-red-500:hover { color: #fca5a5; }
+
+html.dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.16); }
+html.dark .text-blue-600 { color: #60a5fa; }
+
+html.dark .tree-node-card:not(.root-node):hover {
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+}
+
+html.dark .svg-glow-line {
+    filter: drop-shadow(0 0 4px rgba(148, 163, 184, 0.55));
+}
+
+html.dark .root-node .root-diamond {
+    background: #64748b;
+    border-color: #94a3b8;
+}

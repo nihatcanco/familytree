@@ -80,6 +80,8 @@ def main():
     server_py = (Path(tmp) / "server.py")
     shutil.copy(ROOT / "server.py", server_py)
     shutil.copy(ROOT / "index.html", Path(tmp) / "index.html")
+    shutil.copytree(ROOT / "js", Path(tmp) / "js")
+    shutil.copytree(ROOT / "css", Path(tmp) / "css")
     proc = subprocess.Popen(
         [sys.executable, str(server_py), str(port)],
         cwd=tmp, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -189,6 +191,14 @@ def main():
         # --- static ---
         s, body = c.req("GET", "/index.html")
         check("static index.html served", s == 200, s)
+        conn = http.client.HTTPConnection("localhost", port, timeout=5)
+        conn.request("GET", "/css/app.css")
+        r = conn.getresponse(); r.read()
+        check("app.css served as text/css", r.status == 200 and "css" in r.getheader("Content-Type", ""), r.status)
+        conn.request("GET", "/js/app.js")
+        r = conn.getresponse(); r.read()
+        check("app.js served as javascript", r.status == 200 and "javascript" in r.getheader("Content-Type", ""), r.status)
+        conn.close()
         s, body = c.req("GET", "/../server.py")
         check("path traversal blocked", s in (403, 404), s)
 
