@@ -575,6 +575,7 @@
         // every write, so this is UX polish, not the security boundary).
         let currentUserRole = 'viewer';
         let currentUserId = null;
+        let currentUserPersonId = null;
         function canEditTree() { return currentUserRole === 'admin' || currentUserRole === 'editor'; }
 
         // Tidy-tree layout output, keyed by person id. Recomputed by
@@ -3338,24 +3339,29 @@ ${cardsInner}
             }
         }
 
-        function focusSearchResult() {
-            if (searchResults.length === 0 || currentSearchIndex < 0) return;
-            
-            const targetCard = searchResults[currentSearchIndex];
-            
+        // Centers `targetCard` in the scroll viewport (accounting for the
+        // current zoom, since tree-transform is what's actually scaled).
+        function scrollCardToCenter(targetCard) {
             const cardRect = targetCard.getBoundingClientRect();
             const treeRect = treeTransform.getBoundingClientRect();
             const containerRect = scrollContainer.getBoundingClientRect();
-            
+
             const cardCenterX = (cardRect.left - treeRect.left) + (cardRect.width / 2);
             const cardCenterY = (cardRect.top - treeRect.top) + (cardRect.height / 2);
-            
+
             scrollContainer.scrollTo({
                 left: cardCenterX - (containerRect.width / 2),
                 top: cardCenterY - (containerRect.height / 2),
                 behavior: 'smooth'
             });
-            
+        }
+
+        function focusSearchResult() {
+            if (searchResults.length === 0 || currentSearchIndex < 0) return;
+
+            const targetCard = searchResults[currentSearchIndex];
+            scrollCardToCenter(targetCard);
+
             // Trigger click simulation to show person details perfectly.
             // Skipped while picking the two people for "İki kişi arası bağ" —
             // there a click commits a pick, so let the user click deliberately
@@ -3363,6 +3369,29 @@ ${cardsInner}
             if (!targetCard.classList.contains('highlighted') && relationshipMode !== 'picking') {
                  targetCard.click();
             }
+        }
+
+        // Finds the rendered card for a person id (not a root diamond), so
+        // the "go to my card" badge click and similar shortcuts can jump to
+        // it — null if that person isn't currently rendered (e.g. pruned out
+        // by focus mode).
+        function findPersonCardEl(personId) {
+            const cards = document.querySelectorAll('.tree-node-card[data-details]');
+            for (const card of cards) {
+                try {
+                    const details = JSON.parse(card.getAttribute('data-details'));
+                    if (!details.isRoot && Number(details.id) === Number(personId)) return card;
+                } catch (e) {}
+            }
+            return null;
+        }
+
+        function goToPersonCard(personId) {
+            const card = findPersonCardEl(personId);
+            if (!card) return false;
+            scrollCardToCenter(card);
+            card.click();
+            return true;
         }
 
         function navigateSearch(direction) {
@@ -3455,12 +3484,21 @@ ${cardsInner}
         async function onAuthenticated(user) {
             currentUserRole = user.role;
             currentUserId = user.id;
+            currentUserPersonId = user.personId;
             const roleLabel = { admin: 'Admin', editor: 'Editor', viewer: 'Viewer' }[user.role] || user.role;
             currentUserBadge.textContent = `${user.username} · ${roleLabel}`;
+            currentUserBadge.classList.toggle('cursor-pointer', currentUserPersonId != null);
+            currentUserBadge.classList.toggle('hover:bg-slate-100', currentUserPersonId != null);
+            currentUserBadge.title = currentUserPersonId != null ? 'Kendi kartınıza gidin' : '';
             applyRoleUI();
             showApp();
             await loadAndRenderTree();
         }
+
+        currentUserBadge.addEventListener('click', () => {
+            if (currentUserPersonId == null) return;
+            goToPersonCard(currentUserPersonId);
+        });
 
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
