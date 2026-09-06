@@ -2157,12 +2157,13 @@ ${cardsInner}
         });
 
         // Close Person Details Panel
-        btnCloseDetails.addEventListener('click', () => {
-            // Salt-okunur bağ görünümünde paneli kapatmak o görünümden de çıkar.
-            // Düz focus modu ise açık kalır (kendi araç çubuğu butonu ile
-            // açılıp kapanır) ki soy hattı etkileşimli kalsın.
-            if (isFocusMode && relationshipMode === 'showing') toggleFocusMode(false);
-            
+        btnCloseDetails.addEventListener('click', async () => {
+            // Paneli kapatmak, açık olan her türlü focus görünümünden de çıkarır
+            // (salt-okunur bağ görünümü veya düz kişi soy-hattı focus modu).
+            // Önce focus'tan çık (tam ağacı yeniden render eder) ki aşağıdaki
+            // vurgu temizliği son render'a uygulansın.
+            if (isFocusMode) await toggleFocusMode(false);
+
             document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
                 el.classList.remove('highlighted', 'highlighted-gen', 'highlighted-spouse');
                 el.style.removeProperty('--highlight-color');
