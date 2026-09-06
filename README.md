@@ -1,4 +1,5 @@
-Requires Python 3 (stdlib only, no extra installs).
+Requires Python 3 (stdlib only, no extra installs). The frontend has no build
+step — all CSS and JS is served as-is, no CDN dependencies.
 
 ```bash
 python3 server.py
@@ -33,3 +34,20 @@ Any logged-in user can change their own password (key icon, top right — needs 
 ## Running this on the internet
 
 `server.py` only ever speaks plain HTTP — for real internet exposure, put it behind a reverse proxy (nginx, Caddy, etc.) that terminates HTTPS, then set `FAMILYTREE_SECURE_COOKIES=1` when starting the server so the session cookie is marked `Secure`. Without that env var the cookie still works over plain HTTP (e.g. local/LAN use), but shouldn't be relied on over the open internet.
+
+## Layout
+
+```
+server.py         HTTP server + /api (route table, one write lock, FK-enforced SQLite)
+index.html        markup only
+css/app.css       whole stylesheet (utilities + tree layout + dark theme)
+js/api.js         fetch() wrapper for /api
+js/tree-model.js  flat rows -> hierarchy -> tidy-tree layout (no DOM)
+js/card-view.js   person/root node -> card HTML / SVG fragment
+js/util.js        pure helpers (escaping, Turkish folding, colours, …)
+js/icons.js       inline SVG icon set (was the Lucide CDN)
+js/app.js         everything interactive (render pipeline, connectors, focus,
+                  search, minimap, details panel, auth, admin panel)
+tests/            python3 tests/test_api.py  — API integration (needs stdlib only)
+                  python3 tests/test_ui.py   — browser smoke test (needs playwright)
+```
