@@ -30,7 +30,7 @@ pipeline {
     // Needs Python on the SYSTEM Path (all-users python.org install), with Jenkins
     // restarted afterwards so the service sees it. If you must point at a specific
     // python.exe instead, use forward slashes: 'C:/Program Files/Python312/python.exe'
-    PYTHON  = 'C:/Program Files/Python312/python.exe'
+    PYTHON  = 'C:\Users\Administrator\AppData\Local\Microsoft\WindowsApps\python3.exe'
   }
 
   stages {
