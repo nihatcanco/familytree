@@ -10,6 +10,7 @@ import {
     triggerDownload, generationColors
 } from './util.js';
 import { generateCardHTML, cardToSvgFragment } from './card-view.js';
+import { startTour } from './tour.js';
 
     document.addEventListener('DOMContentLoaded', () => {
 
@@ -75,6 +76,7 @@ import { generateCardHTML, cardToSvgFragment } from './card-view.js';
         const appSidebar = document.getElementById('app-sidebar');
         const currentUserBadge = document.getElementById('current-user-badge');
         const btnLogout = document.getElementById('btn-logout');
+        const btnHelpTour = document.getElementById('btn-help-tour');
 
         const btnChangePassword = document.getElementById('btn-change-password');
         const changePasswordOverlay = document.getElementById('change-password-overlay');
@@ -2730,7 +2732,7 @@ ${cardsInner}
             if (btnAdminPanel) btnAdminPanel.classList.toggle('hidden', currentUserRole !== 'admin');
         }
 
-        async function onAuthenticated(user) {
+        async function onAuthenticated(user, { fresh = false } = {}) {
             currentUserRole = user.role;
             currentUserId = user.id;
             currentUserPersonId = user.personId;
@@ -2742,7 +2744,11 @@ ${cardsInner}
             applyRoleUI();
             showApp();
             await loadAndRenderTree();
+            // Guided tutorial on every login (not on a silent session restore).
+            if (fresh) startTour();
         }
+
+        if (btnHelpTour) btnHelpTour.addEventListener('click', () => startTour());
 
         currentUserBadge.addEventListener('click', () => {
             if (currentUserPersonId == null) return;
@@ -2756,7 +2762,7 @@ ${cardsInner}
             btnLoginSubmit.textContent = 'Giriş yapılıyor...';
             try {
                 const user = await login(loginUsername.value.trim(), loginPassword.value);
-                await onAuthenticated(user);
+                await onAuthenticated(user, { fresh: true });
             } catch (err) {
                 loginError.textContent = err.message;
                 loginError.classList.remove('hidden');

@@ -94,6 +94,18 @@ def main():
             page.wait_for_selector(".tree-node-card[data-id]", timeout=15000)
             page.wait_for_timeout(1500)  # let layout + connectors settle
 
+            # the guided tour pops up on every fresh login; dismiss it before
+            # driving the app (its backdrop would swallow clicks otherwise)
+            check("guided tour shows on login", page.is_visible("#ft-tour-root"))
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#ft-tour-root", state="detached", timeout=3000)
+
+            # and it can be reopened from the help button
+            page.click("#btn-help-tour")
+            check("tour reopens from help button", page.is_visible("#ft-tour-card"))
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#ft-tour-root", state="detached", timeout=3000)
+
             cards = page.eval_on_selector_all(".tree-node-card[data-id]", "els => els.length")
             check("many cards rendered", cards > 400, cards)
 
