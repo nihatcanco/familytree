@@ -100,6 +100,13 @@ def main():
             page.keyboard.press("Escape")
             page.wait_for_selector("#ft-tour-root", state="detached", timeout=3000)
 
+            # the help button's icon must actually render (regression: a stale
+            # icons.js with no 'help-circle' entry left an empty <svg> and the
+            # button looked blank)
+            help_icon_shapes = page.eval_on_selector_all(
+                "#btn-help-tour svg > *", "els => els.length")
+            check("help button icon renders", help_icon_shapes > 0, help_icon_shapes)
+
             # and it can be reopened from the help button
             page.click("#btn-help-tour")
             check("tour reopens from help button", page.is_visible("#ft-tour-card"))

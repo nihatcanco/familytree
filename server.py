@@ -8,6 +8,8 @@ to the database file on disk -- no browser file-write APIs, no downloads.
 Run with:
     python3 server.py [port]
 """
+import calendar
+import email.utils
 import hashlib
 import hmac
 import json
@@ -870,10 +872,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Not found"})
             return
 
+        # Always revalidate: `no-cache` lets the browser keep a copy but forces
+        # an If-Modified-Since check on every load, so a deploy takes effect
+        # immediately instead of being masked by heuristic caching. The 304
+        # branch keeps that check cheap (no body re-sent).
+        mtime = int(candidate.stat().st_mtime)
+        ims = self.headers.get("If-Modified-Since")
+        parsed = email.utils.parsedate(ims) if ims else None
+        if parsed is not None and calendar.timegm(parsed) >= mtime:
+            self.send_response(304)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Last-Modified", self.date_time_string(mtime))
+            self.end_headers()
+            return
+
         data = candidate.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", CONTENT_TYPES.get(candidate.suffix, "application/octet-stream"))
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Last-Modified", self.date_time_string(mtime))
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
