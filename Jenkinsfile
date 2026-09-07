@@ -27,7 +27,10 @@ pipeline {
   environment {
     APP_DIR = 'C:\\apps\\familytree'
     SERVICE = 'familytree'
-    PYTHON  = 'python'
+    // Full path to python.exe — the Jenkins service account often has no PATH entry
+    // for it. Use the same path configured for the NSSM service. `python` alone
+    // works only if Python is on the SYSTEM Path and Jenkins was restarted after.
+    PYTHON  = 'C:\Users\Administrator\AppData\Local\Microsoft\WindowsApps\python3.exe'
   }
 
   stages {
