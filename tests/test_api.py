@@ -17,9 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
+HOST = "127.0.0.1"
+
+
 def free_port():
     s = socket.socket()
-    s.bind(("localhost", 0))
+    s.bind((HOST, 0))
     port = s.getsockname()[1]
     s.close()
     return port
@@ -31,7 +34,7 @@ class Client:
         self.cookie = None
 
     def req(self, method, path, body=None):
-        conn = http.client.HTTPConnection("localhost", self.port, timeout=5)
+        conn = http.client.HTTPConnection(HOST, self.port, timeout=5)
         headers = {"Content-Type": "application/json"}
         if self.cookie:
             headers["Cookie"] = self.cookie
@@ -87,12 +90,19 @@ def main():
         cwd=tmp, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     try:
-        for _ in range(50):
+        up = False
+        for _ in range(100):
+            if proc.poll() is not None:
+                break
             try:
-                http.client.HTTPConnection("localhost", port, timeout=1).request("GET", "/api/me")
+                http.client.HTTPConnection(HOST, port, timeout=1).request("GET", "/api/me")
+                up = True
                 break
             except OSError:
                 time.sleep(0.1)
+        if not up:
+            print("server did not start; output follows:\n" + (proc.stdout.read() if proc.stdout else ""))
+            raise SystemExit(1)
 
         c = Client(port)
 
@@ -191,7 +201,7 @@ def main():
         # --- static ---
         s, body = c.req("GET", "/index.html")
         check("static index.html served", s == 200, s)
-        conn = http.client.HTTPConnection("localhost", port, timeout=5)
+        conn = http.client.HTTPConnection(HOST, port, timeout=5)
         conn.request("GET", "/css/app.css")
         r = conn.getresponse(); r.read()
         check("app.css served as text/css", r.status == 200 and "css" in r.getheader("Content-Type", ""), r.status)

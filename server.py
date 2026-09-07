@@ -956,8 +956,9 @@ def main():
     ensure_schema()
     ensure_initial_admin()
 
-    server = ThreadingHTTPServer(("localhost", port), Handler)
-    print(f"Family tree server running at http://localhost:{port}")
+    host = os.environ.get("FAMILYTREE_HOST", "127.0.0.1")
+    server = ThreadingHTTPServer((host, port), Handler)
+    print(f"Family tree server running at http://{host}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
