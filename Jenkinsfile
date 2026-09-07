@@ -27,10 +27,10 @@ pipeline {
   environment {
     APP_DIR = 'C:\\apps\\familytree'
     SERVICE = 'familytree'
-    // Needs Python on the SYSTEM Path (all-users python.org install), with Jenkins
-    // restarted afterwards so the service sees it. If you must point at a specific
-    // python.exe instead, use forward slashes: 'C:/Program Files/Python312/python.exe'
+    // Full paths — the Jenkins service account's PATH usually has neither.
+    // PYTHON: all-users python.org install. NSSM: wherever nssm.exe was dropped.
     PYTHON  = 'C:/Program Files/Python312/python.exe'
+    NSSM    = 'C:\\tools\\nssm.exe'
   }
 
   stages {
@@ -56,7 +56,8 @@ pipeline {
             /XD .git .github tests __pycache__ .venv-test .venv .claude
           set RC=%ERRORLEVEL%
           rem robocopy: 0-7 = success, 8+ = real error
-          if %RC% GEQ 8 exit /b %RC%
+          if %RC% GEQ 8 (echo robocopy failed with exit code %RC% & exit /b %RC%)
+          if not exist "%APP_DIR%\\server.py" (echo deploy did not land: server.py missing in %APP_DIR% & exit /b 1)
           exit /b 0
         '''
       }
@@ -70,7 +71,7 @@ pipeline {
 
     stage('Restart service') {
       steps {
-        bat 'nssm restart %SERVICE%'
+        bat '"%NSSM%" restart %SERVICE%'
       }
     }
 
