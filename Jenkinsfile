@@ -27,10 +27,10 @@ pipeline {
   environment {
     APP_DIR = 'C:\\apps\\familytree'
     SERVICE = 'familytree'
-    // Full path to python.exe — the Jenkins service account often has no PATH entry
-    // for it. Use the same path configured for the NSSM service. `python` alone
-    // works only if Python is on the SYSTEM Path and Jenkins was restarted after.
-    PYTHON  = 'C:\Users\Administrator\AppData\Local\Microsoft\WindowsApps\python3.exe'
+    // Needs Python on the SYSTEM Path (all-users python.org install), with Jenkins
+    // restarted afterwards so the service sees it. If you must point at a specific
+    // python.exe instead, use forward slashes: 'C:/Program Files/Python312/python.exe'
+    PYTHON  = 'python'
   }
 
   stages {
@@ -43,7 +43,7 @@ pipeline {
     stage('Test') {
       steps {
         // stdlib-only API integration test; spins up its own throwaway DB.
-        bat '%PYTHON% tests\\test_api.py'
+        bat '"%PYTHON%" tests\\test_api.py'
       }
     }
 
