@@ -27,6 +27,16 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data.sqlite"
 
+# Console output is UTF-8 (the first-run message is Turkish). On Windows the
+# console defaults to a legacy code page (cp1252) that can't encode it, which
+# would crash on startup, so force UTF-8 and never let an unencodable glyph kill
+# the process.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 EDITABLE_FIELDS = {"name", "surname", "gender", "birthdate", "birthplace", "note", "dateofdeath"}
 
 # --- Auth ---------------------------------------------------------------
