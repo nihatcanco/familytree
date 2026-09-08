@@ -11,6 +11,3 @@ data.sqlite
 
 # macOS
 .DS_Store
-
-# Stray dir from an unexpanded format string
-/%s
