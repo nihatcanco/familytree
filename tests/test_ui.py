@@ -198,21 +198,43 @@ def main():
                   mp.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"))
             check("mobile: top toolbar within viewport",
                   mp.eval_on_selector("#top-toolbar", "el => el.getBoundingClientRect().right <= innerWidth + 1"))
-            # the tour opens the drawer on mobile — close it, then a card tap
-            # should re-open it alongside the details panel
+            # the tour opens the tools drawer on mobile — close it first
             mp.click("#btn-sidebar-toggle")
             mp.wait_for_timeout(400)
+
+            # tapping a card raises the bottom sheet (NOT the tools drawer),
+            # pinned to the bottom edge and within the viewport
             mp.click(".tree-node-card:not(.root-node)")
             mp.wait_for_timeout(500)
-            check("mobile: card tap opens details drawer",
-                  mp.eval_on_selector("#app-sidebar", "el => el.classList.contains('ft-drawer-open')")
+            check("mobile: card tap opens the details bottom sheet",
+                  mp.eval_on_selector("#person-details-panel", "el => el.classList.contains('ft-sheet-open')")
                   and mp.is_visible("#person-details-panel"))
-            check("mobile: drawer within viewport",
-                  mp.eval_on_selector("#app-sidebar", "el => el.getBoundingClientRect().right <= innerWidth + 1"))
-            mp.click("#btn-close-details")
-            mp.wait_for_timeout(400)
-            check("mobile: closing details closes drawer",
+            check("mobile: card tap does not open the tools drawer",
                   mp.eval_on_selector("#app-sidebar", "el => !el.classList.contains('ft-drawer-open')"))
+            check("mobile: sheet sits on the bottom edge, within the viewport",
+                  mp.eval_on_selector("#person-details-panel", """el => {
+                      const r = el.getBoundingClientRect();
+                      return Math.abs(r.bottom - innerHeight) <= 1 && r.right <= innerWidth + 1 && r.left >= -1;
+                  }"""))
+            check("mobile: FAB hidden while the sheet is open",
+                  not mp.is_visible("#btn-sidebar-toggle"))
+            mp.click("#btn-close-details")
+            mp.wait_for_timeout(500)
+            check("mobile: closing details retracts the sheet",
+                  mp.eval_on_selector("#person-details-panel", "el => !el.classList.contains('ft-sheet-open')")
+                  and not mp.eval_on_selector("body", "el => el.classList.contains('ft-sheet-open')"))
+
+            # tools drawer: opens only from the FAB, closes from its backdrop
+            mp.click("#btn-sidebar-toggle")
+            mp.wait_for_timeout(400)
+            check("mobile: FAB opens the tools drawer, within the viewport",
+                  mp.eval_on_selector("#app-sidebar", "el => el.classList.contains('ft-drawer-open')")
+                  and mp.eval_on_selector("#app-sidebar", "el => el.getBoundingClientRect().right <= innerWidth + 1"))
+            mp.click("#sidebar-backdrop", position={"x": 16, "y": 16})  # clear of the drawer
+            mp.wait_for_timeout(400)
+            check("mobile: backdrop tap closes the tools drawer",
+                  mp.eval_on_selector("#app-sidebar", "el => !el.classList.contains('ft-drawer-open')"))
+
             z0 = mp.eval_on_selector("#tree-transform", "el => el.style.transform")
             mp.evaluate("""() => {
                 const sc = document.getElementById('scroll-container');
@@ -226,6 +248,25 @@ def main():
             mp.wait_for_timeout(200)
             check("mobile: two-finger pinch zooms the canvas",
                   mp.eval_on_selector("#tree-transform", "el => el.style.transform") != z0)
+
+            # double-tap on empty canvas also zooms
+            z1 = mp.eval_on_selector("#tree-transform", "el => el.style.transform")
+            mp.evaluate("""() => {
+                const sc = document.getElementById('scroll-container');
+                const r = sc.getBoundingClientRect();
+                const pt = {clientX: r.left + 8, clientY: r.top + 8};
+                const fire = (type, touches, changed) => {
+                    const e = new Event(type, {bubbles: true, cancelable: true});
+                    e.touches = touches; e.targetTouches = touches; e.changedTouches = changed;
+                    Object.defineProperty(e, 'target', {value: sc});
+                    sc.dispatchEvent(e);
+                };
+                fire('touchstart', [pt], [pt]); fire('touchend', [], [pt]);
+                fire('touchstart', [pt], [pt]); fire('touchend', [], [pt]);
+            }""")
+            mp.wait_for_timeout(200)
+            check("mobile: double-tap on empty canvas zooms",
+                  mp.eval_on_selector("#tree-transform", "el => el.style.transform") != z1)
             mob.close()
 
             check("no console errors / page exceptions", not errors, "\n     " + "\n     ".join(errors))

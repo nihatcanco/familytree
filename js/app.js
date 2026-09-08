@@ -162,35 +162,72 @@ import { startTour } from './tour.js';
         // Initialize Lucide Icons on load
         createIcons();
 
-        // --- Responsive sidebar drawer (phone / tablet) ---
-        // Below the CSS breakpoint the right sidebar is position:fixed and
-        // slid off-screen; these toggle it in/out and dim the rest of the UI.
-        // On wide screens the sidebar is a normal flex column and these are
-        // effectively no-ops (the transform class does nothing without the
-        // media query, the backdrop stays display:none).
+        // --- Responsive: tools drawer + person-details bottom sheet (phone / tablet) ---
+        // Below the CSS breakpoint the right rail splits in two:
+        //   * the TOOLS become a right-edge drawer that only opens on an
+        //     explicit tap of the floating button (or the tour / a finished
+        //     relationship pick) — never as a side effect of tapping a card;
+        //   * the PERSON DETAILS panel becomes a bottom sheet that slides up
+        //     over the canvas (showPersonPanel / hidePersonPanel below).
+        // On wide screens the rail is a normal flex column and all of this is
+        // inert — the transform/sheet classes have no rules outside the media
+        // query and the backdrop stays display:none.
         const mqNarrow = window.matchMedia('(max-width: 900px)');
         const isNarrow = () => mqNarrow.matches;
-        function openSidebar() {
+
+        function openToolsDrawer() {
             appSidebar.classList.add('ft-drawer-open');
             if (sidebarBackdrop) sidebarBackdrop.classList.add('show');
-            // The minimap canvas / legend were off-screen with no usable size;
-            // redraw once the slide-in transition has settled.
+            // The minimap / legend were off-screen with no usable size; redraw
+            // once the slide-in transition has settled.
             setTimeout(() => drawMinimap(), 280);
         }
-        function closeSidebar() {
+        function closeToolsDrawer() {
             appSidebar.classList.remove('ft-drawer-open');
             if (sidebarBackdrop) sidebarBackdrop.classList.remove('show');
         }
-        function toggleSidebar() {
-            if (appSidebar.classList.contains('ft-drawer-open')) closeSidebar();
-            else openSidebar();
+        function toggleToolsDrawer() {
+            if (appSidebar.classList.contains('ft-drawer-open')) closeToolsDrawer();
+            else openToolsDrawer();
         }
-        const openSidebarIfNarrow = () => { if (isNarrow()) openSidebar(); };
-        const closeSidebarIfNarrow = () => { if (isNarrow()) closeSidebar(); };
-        if (btnSidebarToggle) btnSidebarToggle.addEventListener('click', toggleSidebar);
-        if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeSidebar);
+        if (btnSidebarToggle) btnSidebarToggle.addEventListener('click', toggleToolsDrawer);
+        if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeToolsDrawer);
+
+        // Every view/edit/close path for the details panel goes through these
+        // two, so the desktop panel and the mobile sheet stay in one code path.
+        let _panelHideTimer = null;
+        function showPersonPanel() {
+            clearTimeout(_panelHideTimer);
+            personDetailsPanel.classList.remove('hidden');
+            personDetailsPanel.classList.add('flex');
+            if (isNarrow()) {
+                closeToolsDrawer();               // the sheet and the drawer never coexist
+                document.body.classList.add('ft-sheet-open');
+                void personDetailsPanel.offsetWidth; // flush the off-screen start state
+                personDetailsPanel.classList.add('ft-sheet-open');
+            }
+        }
+        function hidePersonPanel() {
+            document.body.classList.remove('ft-sheet-open');
+            personDetailsPanel.classList.remove('ft-sheet-open');
+            if (isNarrow()) {
+                // let the sheet slide back down before it's display:none'd
+                _panelHideTimer = setTimeout(() => {
+                    personDetailsPanel.classList.add('hidden');
+                    personDetailsPanel.classList.remove('flex');
+                }, 260);
+            } else {
+                personDetailsPanel.classList.add('hidden');
+                personDetailsPanel.classList.remove('flex');
+            }
+        }
+
         mqNarrow.addEventListener('change', () => {
-            if (!isNarrow()) closeSidebar();
+            if (!isNarrow()) {
+                closeToolsDrawer();
+                document.body.classList.remove('ft-sheet-open');
+                personDetailsPanel.classList.remove('ft-sheet-open');
+            }
             drawMinimap();
         });
 
@@ -822,27 +859,31 @@ import { startTour } from './tour.js';
                 // Delay scrolling until the browser has finished painting the initial layout.
                 // This ensures getBoundingClientRect() returns the final, correct positions.
                 setTimeout(() => {
-                    // On a phone/tablet the tree almost never fits at 1:1 — open
-                    // zoomed out to the whole tree, then let the user pinch in.
+                    // On a phone/tablet, fitting the whole 500+ person tree on
+                    // screen makes it an illegible sliver. Instead open a touch
+                    // zoomed out (for context) but still centered on the first
+                    // card at a readable size — double-tap / pinch does the rest.
                     if (isNarrow()) {
-                        fitTreeToScreen();
-                        setTimeout(drawMinimap, 60);
-                        return;
+                        currentZoom = 0.6;
+                        updateZoomStyle();
                     }
 
-                    const targetCard = document.querySelector('.tree-node-card');
+                    // Land on the first real person (not the root diamond), and
+                    // on a phone put them in the upper third so the descendants
+                    // below are what fills the screen.
+                    const targetCard = document.querySelector('.tree-node-card:not(.root-node)')
+                        || document.querySelector('.tree-node-card');
 
                     if (targetCard) {
                         const cardRect = targetCard.getBoundingClientRect();
                         const treeRect = treeTransform.getBoundingClientRect();
                         const containerRect = scrollContainer.getBoundingClientRect();
-                        
-                        // Center the card in the viewport
+
                         const cardCenterX = (cardRect.left - treeRect.left) + (cardRect.width / 2);
                         const cardCenterY = (cardRect.top - treeRect.top) + (cardRect.height / 2);
-                        
+
                         scrollContainer.scrollLeft = cardCenterX - (containerRect.width / 2);
-                        scrollContainer.scrollTop = cardCenterY - (containerRect.height / 2);
+                        scrollContainer.scrollTop = cardCenterY - (containerRect.height * (isNarrow() ? 0.28 : 0.5));
                     } else {
                         // Fallback to centering the whole tree if no card is found
                         scrollContainer.scrollLeft = (scrollContainer.scrollWidth - scrollContainer.clientWidth) / 2;
@@ -1129,7 +1170,7 @@ import { startTour } from './tour.js';
 
             setTimeout(() => {
                 if (isFocusMode) {
-                    closeSidebarIfNarrow(); // give the fitted bloodline the full screen
+                    closeToolsDrawer(); // give the fitted bloodline the full screen
                     updateZoomStyle(); // re-eval physical dimensions for the wrapper
                     fitTreeToScreen();
                 } else {
@@ -1284,8 +1325,40 @@ import { startTour } from './tour.js';
         }, { passive: false });
 
         const endPinch = (e) => { if (e.touches.length < 2) pinchStart = null; };
-        scrollContainer.addEventListener('touchend', endPinch);
         scrollContainer.addEventListener('touchcancel', endPinch);
+
+        // Double-tap an empty part of the canvas to zoom toward that point; a
+        // second double-tap fits the whole tree back on screen. Taps that land
+        // on a card are left to the card's own select handler.
+        let lastTapAt = 0, lastTapX = 0, lastTapY = 0;
+        scrollContainer.addEventListener('touchend', (e) => {
+            endPinch(e);
+            if (pinchStart || e.touches.length) return;
+            const t = e.changedTouches[0];
+            if (!t || (e.target.closest && e.target.closest('.tree-node-card'))) { lastTapAt = 0; return; }
+
+            const now = Date.now();
+            const isDoubleTap = now - lastTapAt < 300
+                && Math.hypot(t.clientX - lastTapX, t.clientY - lastTapY) < 32;
+            if (!isDoubleTap) { lastTapAt = now; lastTapX = t.clientX; lastTapY = t.clientY; return; }
+            lastTapAt = 0;
+
+            if (currentZoom < 0.9) {
+                const rect = scrollContainer.getBoundingClientRect();
+                const px = t.clientX - rect.left;
+                const py = t.clientY - rect.top;
+                const oldZoom = currentZoom;
+                currentZoom = 1;
+                const zoomRatio = currentZoom / oldZoom;
+                updateZoomStyle(
+                    (scrollContainer.scrollLeft + px) * zoomRatio - px,
+                    (scrollContainer.scrollTop + py) * zoomRatio - py,
+                );
+            } else {
+                fitTreeToScreen();
+            }
+            drawMinimap();
+        });
 
         // Minimap Drawing and Interaction
         function drawMinimap() {
@@ -1389,9 +1462,7 @@ import { startTour } from './tour.js';
             }
 
             personDetailsContent.innerHTML = detailsHTML;
-            personDetailsPanel.classList.remove('hidden');
-            personDetailsPanel.classList.add('flex');
-            openSidebarIfNarrow(); // the panel lives in the drawer on small screens
+            showPersonPanel();
             if (btnEditDetails) btnEditDetails.classList.toggle('hidden', !canEditTree());
             if (btnDeleteDetails) btnDeleteDetails.classList.toggle('hidden', !canEditTree());
             createIcons();
@@ -1434,9 +1505,7 @@ import { startTour } from './tour.js';
             }
 
             personDetailsContent.innerHTML = html;
-            personDetailsPanel.classList.remove('hidden');
-            personDetailsPanel.classList.add('flex');
-            openSidebarIfNarrow();
+            showPersonPanel();
             if (btnEditDetails) btnEditDetails.classList.toggle('hidden', !canEditTree());
             if (btnDeleteDetails) btnDeleteDetails.classList.toggle('hidden', !canEditTree());
             createIcons();
@@ -1471,9 +1540,7 @@ import { startTour } from './tour.js';
                     </div>
                 </div>`;
 
-            personDetailsPanel.classList.remove('hidden');
-            personDetailsPanel.classList.add('flex');
-            openSidebarIfNarrow();
+            showPersonPanel();
             if (btnEditDetails) btnEditDetails.classList.add('hidden');
             if (btnDeleteDetails) btnDeleteDetails.classList.add('hidden');
 
@@ -1749,9 +1816,7 @@ import { startTour } from './tour.js';
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
             currentDetailsPersonId = null;
-            personDetailsPanel.classList.add('hidden');
-            personDetailsPanel.classList.remove('flex');
-            closeSidebarIfNarrow();
+            hidePersonPanel();
             drawMinimap();
             if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         }
@@ -1848,9 +1913,7 @@ import { startTour } from './tour.js';
             if (btnEditDetails) btnEditDetails.classList.add('hidden');
             if (btnDeleteDetails) btnDeleteDetails.classList.add('hidden');
 
-            personDetailsPanel.classList.remove('hidden');
-            personDetailsPanel.classList.add('flex');
-            openSidebarIfNarrow();
+            showPersonPanel();
 
             document.getElementById('edit-field-name').focus();
             document.getElementById('btn-cancel-edit-details').addEventListener('click', () => {
@@ -2132,9 +2195,8 @@ ${cardsInner}
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
             
-            personDetailsPanel.classList.add('hidden');
-            personDetailsPanel.classList.remove('flex');
-            
+            hidePersonPanel();
+
             // Highlight logic (toggles off if clicking the currently highlighted card)
             // Note: this only ever highlights/selects — it never re-renders the
             // tree, in focus mode or otherwise. Changing what focus mode shows
@@ -2274,9 +2336,7 @@ ${cardsInner}
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
 
-            personDetailsPanel.classList.add('hidden');
-            personDetailsPanel.classList.remove('flex');
-            closeSidebarIfNarrow();
+            hidePersonPanel();
 
             drawMinimap();
             if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
@@ -2302,9 +2362,8 @@ ${cardsInner}
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
             
-            personDetailsPanel.classList.add('hidden');
-            personDetailsPanel.classList.remove('flex');
-            
+            hidePersonPanel();
+
             // Eğer daha önceden aktif değilse, listeyi aktif yap ve ilgili jenerasyonu vurgula
             if (!isActive) {
                 item.classList.add('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
@@ -2346,8 +2405,7 @@ ${cardsInner}
             document.querySelectorAll('.legend-item').forEach(el => {
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
-            personDetailsPanel.classList.add('hidden');
-            personDetailsPanel.classList.remove('flex');
+            hidePersonPanel();
         }
 
         function setRelBtnActive(active) {
@@ -2523,7 +2581,7 @@ ${cardsInner}
             relationshipChain.classList.remove('hidden');
             relationshipChain.classList.add('flex');
 
-            openSidebarIfNarrow(); // surface the connecting-chain summary
+            if (isNarrow()) openToolsDrawer(); // surface the connecting-chain summary in the drawer
             setTimeout(() => {
                 updateZoomStyle();
                 fitTreeToScreen();
@@ -2535,7 +2593,7 @@ ${cardsInner}
             if (isFocusMode) await toggleFocusMode(false);
             clearPickMarkers();
             clearHighlightsAndPanel();
-            closeSidebarIfNarrow(); // picking happens by tapping cards on the canvas
+            closeToolsDrawer(); // picking happens by tapping cards on the canvas
             relationshipMode = 'picking';
             relPick1 = null;
             relPick2 = null;
@@ -2812,7 +2870,8 @@ ${cardsInner}
             appTreeArea.classList.add('hidden');
             appSidebar.classList.add('hidden');
             appSidebar.classList.remove('flex');
-            closeSidebar();
+            closeToolsDrawer();
+            hidePersonPanel();
             if (btnSidebarToggle) btnSidebarToggle.classList.add('hidden');
             loginOverlay.classList.remove('hidden');
             loginPassword.value = '';
@@ -2840,10 +2899,10 @@ ${cardsInner}
             // Guided tutorial on every login (not on a silent session restore).
             // Several tour steps point at controls that live in the drawer, so
             // open it first on narrow screens.
-            if (fresh) { openSidebarIfNarrow(); startTour(); }
+            if (fresh) { if (isNarrow()) openToolsDrawer(); startTour(); }
         }
 
-        if (btnHelpTour) btnHelpTour.addEventListener('click', () => { openSidebarIfNarrow(); startTour(); });
+        if (btnHelpTour) btnHelpTour.addEventListener('click', () => { if (isNarrow()) openToolsDrawer(); startTour(); });
 
         currentUserBadge.addEventListener('click', () => {
             if (currentUserPersonId == null) return;
