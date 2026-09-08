@@ -272,6 +272,7 @@ img, video { max-width: 100%; height: auto; }
 .object-cover { object-fit: cover; }
 .pointer-events-none { pointer-events: none; }
 .select-none { user-select: none; }
+.select-text { user-select: text; }
 .cursor-pointer { cursor: pointer; }
 .cursor-grab { cursor: grab; }
 .cursor-grabbing { cursor: grabbing; }

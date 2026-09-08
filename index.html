@@ -266,6 +266,11 @@
                 <div id="minimap-viewport" class="absolute border-2 border-blue-500 bg-blue-500/20 pointer-events-none transition-none shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" style="display: none;"></div>
             </div>
         </div>
+
+        <!-- Build stamp. Filled from /version.json, which Jenkins rewrites on
+             every deploy (see the "Stamp version" stage in the Jenkinsfile);
+             the copy committed to the repo just reads "yerel geliştirme". -->
+        <div id="app-version" class="mt-auto pt-3 text-center text-[10px] text-slate-400 font-mono select-text"></div>
     </div>
 
     <!-- Mobile / tablet only: a floating button that slides the TOOLS half of

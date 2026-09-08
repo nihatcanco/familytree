@@ -162,6 +162,29 @@ import { startTour } from './tour.js';
         // Initialize Lucide Icons on load
         createIcons();
 
+        // --- Build/version stamp in the sidebar footer ---
+        // /version.json is rewritten by Jenkins on every deploy (see the
+        // "Stamp version" stage in the Jenkinsfile). The copy committed to the
+        // repo has build "dev", which just shows "yerel geliştirme".
+        (async () => {
+            const el = document.getElementById('app-version');
+            if (!el) return;
+            try {
+                const res = await fetch('version.json', { cache: 'no-store' });
+                if (!res.ok) throw new Error(res.status);
+                const v = await res.json();
+                el.textContent = v.build === 'dev'
+                    ? 'yerel geliştirme'
+                    : `sürüm ${v.build}` + (v.commit ? ` · ${v.commit}` : '');
+                if (v.builtAt) {
+                    const d = new Date(v.builtAt);
+                    if (!isNaN(d)) el.title = `Derleme: ${d.toLocaleString('tr-TR')}`;
+                }
+            } catch {
+                el.textContent = '';
+            }
+        })();
+
         // --- Responsive: tools drawer + person-details bottom sheet (phone / tablet) ---
         // Below the CSS breakpoint the right rail splits in two:
         //   * the TOOLS become a right-edge drawer that only opens on an

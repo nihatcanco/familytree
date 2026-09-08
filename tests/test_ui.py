@@ -47,7 +47,7 @@ def main():
             pass
     c.commit(); c.close()
 
-    for name in ("server.py", "index.html"):
+    for name in ("server.py", "index.html", "version.json"):
         shutil.copy(ROOT / name, Path(tmp) / name)
     shutil.copytree(ROOT / "js", Path(tmp) / "js")
     shutil.copytree(ROOT / "css", Path(tmp) / "css")
@@ -128,6 +128,11 @@ def main():
 
             count_txt = page.text_content("#people-count")
             check("people count shown", "kişi" in (count_txt or ""), count_txt)
+
+            # build/version stamp in the sidebar footer (dev copy -> "yerel ...")
+            page.wait_for_function("document.querySelector('#app-version').textContent.length > 0", timeout=3000)
+            ver_txt = page.text_content("#app-version")
+            check("version stamp shown", "yerel" in (ver_txt or ""), ver_txt)
 
             # click a card -> details panel opens
             page.click(".tree-node-card:not(.root-node)")
