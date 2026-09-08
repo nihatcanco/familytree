@@ -1,3 +1,16 @@
+# Python
 __pycache__/
+*.pyc
+
+# Virtualenvs (dev: .venv, deploy: APP_DIR\.venv, legacy: .venv-test)
 .venv/
+.venv-test/
+
+# Old SQLite database — replaced by PostgreSQL, keep stale copies out
 data.sqlite
+
+# macOS
+.DS_Store
+
+# Stray dir from an unexpanded format string
+/%s
