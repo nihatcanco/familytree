@@ -1,7 +1,8 @@
 """Integration smoke test for server.py.
 
-Runs the real server against a throwaway copy of data.sqlite on a random
-port and exercises every endpoint. Run: python3 tests/test_api.py
+Runs the real server against a freshly reset PostgreSQL database (see
+tests/pg_fixture.py) on a random port and exercises every endpoint.
+Run: python3 tests/test_api.py
 """
 import http.client
 import json
@@ -15,6 +16,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pg_fixture import reset_and_seed  # noqa: E402
 
 
 HOST = "127.0.0.1"
@@ -64,24 +67,18 @@ def check(label, cond, extra=""):
 
 def main():
     tmp = tempfile.mkdtemp()
-    db_copy = Path(tmp) / "data.sqlite"
-    shutil.copy(ROOT / "data.sqlite", db_copy)
-    # Wipe accounts so ensure_initial_admin() creates one with a known password.
-    import sqlite3
-    _c = sqlite3.connect(db_copy)
-    for t in ("Sessions", "Users"):
-        try:
-            _c.execute(f"DELETE FROM {t}")
-        except sqlite3.OperationalError:
-            pass
-    _c.commit()
-    _c.close()
+    # Fresh schema + data in Postgres; accounts wiped so ensure_initial_admin()
+    # creates one with a known password.
+    database_url = reset_and_seed()
     port = free_port()
 
-    env = {**os.environ, "FAMILYTREE_ADMIN_USERNAME": "admin", "FAMILYTREE_ADMIN_PASSWORD": "testpass123"}
-    # Run a copy of server.py pointed at the temp DB dir.
+    env = {**os.environ, "FAMILYTREE_ADMIN_USERNAME": "admin", "FAMILYTREE_ADMIN_PASSWORD": "testpass123",
+           "FAMILYTREE_DATABASE_URL": database_url}
+    # Run a copy of server.py from a temp dir (it resolves schema.sql / static
+    # assets relative to its own location).
     server_py = (Path(tmp) / "server.py")
     shutil.copy(ROOT / "server.py", server_py)
+    shutil.copy(ROOT / "schema.sql", Path(tmp) / "schema.sql")
     shutil.copy(ROOT / "index.html", Path(tmp) / "index.html")
     shutil.copytree(ROOT / "js", Path(tmp) / "js")
     shutil.copytree(ROOT / "css", Path(tmp) / "css")

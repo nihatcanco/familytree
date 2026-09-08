@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Local dev server for the family tree app.
+"""Local dev / deploy server for the family tree app.
 
 Serves the static frontend (index.html, css/*, js/*) and a small JSON API
-backed directly by data.sqlite, so edits made in the UI are written straight
-to the database file on disk -- no browser file-write APIs, no downloads.
+backed by PostgreSQL, so edits made in the UI are written straight to the
+database -- no browser file-write APIs, no downloads.
+
+Needs a reachable PostgreSQL; point FAMILYTREE_DATABASE_URL at it (default
+postgresql:///familytree). First-time setup loads the schema and initial data
+with migrate_sqlite_to_pg.py.
 
 Run with:
     python3 server.py [port]
@@ -16,18 +20,23 @@ import json
 import os
 import re
 import secrets
-import sqlite3
 import sys
 import threading
 import time
 from contextlib import contextmanager
+from datetime import timedelta
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool, PoolTimeout
+
 ROOT = Path(__file__).resolve().parent
-DB_PATH = ROOT / "data.sqlite"
+SCHEMA_SQL = ROOT / "schema.sql"
+DATABASE_URL = os.environ.get("FAMILYTREE_DATABASE_URL", "postgresql:///familytree")
 
 # Console output is UTF-8 (the first-run message is Turkish). On Windows the
 # console defaults to a legacy code page (cp1252) that can't encode it, which
@@ -63,12 +72,12 @@ _login_lock = threading.Lock()
 LOGIN_MAX_ATTEMPTS = 8
 LOGIN_WINDOW_SECONDS = 300
 
-# SQLite has no row-level locking and this is a ThreadingHTTPServer, so every
-# mutation runs under this single process-wide lock. It also closes the
-# read-modify-write race in _next_id() (SELECT MAX(id) then INSERT): without
-# it, two concurrent creates compute the same id and the second INSERT hits a
-# PRIMARY KEY violation. The tree is tiny and edits are rare, so serialising
-# all writes costs nothing noticeable.
+# People / Spouses / Parents ids are handed out by _next_id() (SELECT MAX(id)
+# then INSERT), a read-modify-write with no DB-side guard. This is a
+# ThreadingHTTPServer, so every mutation runs under this single process-wide
+# lock: without it two concurrent creates compute the same id and the second
+# INSERT hits a PRIMARY KEY violation. The tree is tiny and edits are rare, so
+# serialising all writes costs nothing noticeable.
 _write_lock = threading.RLock()
 
 CONTENT_TYPES = {
@@ -78,102 +87,56 @@ CONTENT_TYPES = {
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
     ".png": "image/png",
-    ".sqlite": "application/x-sqlite3",
 }
 
+# Opened by open_pool() from main() (and lazily on first use, for the test
+# harness which imports this module and starts the server in-process). dict_row
+# makes every fetch return a plain dict, so `row["col"]` and `dict(row)` both
+# work as before.
+POOL = ConnectionPool(DATABASE_URL, open=False, max_size=10, kwargs={"row_factory": dict_row})
+_pool_lock = threading.Lock()
+_pool_opened = False
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    # The schema declares ON DELETE CASCADE / SET NULL foreign keys; SQLite
-    # ignores them unless this is switched on per connection.
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+
+def open_pool():
+    global _pool_opened
+    with _pool_lock:
+        if not _pool_opened:
+            POOL.open(wait=True, timeout=5)
+            _pool_opened = True
 
 
 @contextmanager
 def db(write=False):
-    """A connection that commits on clean exit and always closes. Pass
-    write=True for mutations so they serialise on _write_lock (see above)."""
+    """A pooled connection: commits on clean exit, rolls back on error, then
+    returns to the pool. Pass write=True for mutations so they serialise on
+    _write_lock (see above)."""
+    open_pool()
     if write:
         _write_lock.acquire()
-    conn = get_connection()
     try:
-        yield conn
-        conn.commit()
+        with POOL.connection() as conn:
+            yield conn
     finally:
-        conn.close()
         if write:
             _write_lock.release()
 
 
 def ensure_schema():
-    """Create tables added after the original data.sqlite was shipped, and
-    clean up rows that predate foreign-key enforcement.
+    """Apply schema.sql (idempotent -- every statement is IF NOT EXISTS) and
+    clean up any dangling link rows.
 
     A root is a standalone family-origin marker (a diamond in the UI): it has
     an editable title and an integer generation, and every descendant
     generation is counted from it. People are linked to a root via RootMembers.
     """
     with db(write=True) as conn:
-        # An earlier iteration shipped Roots as (id, personId, generation);
-        # the current model has no personId. Drop that shape if present.
-        cols = {row["name"] for row in conn.execute("PRAGMA table_info(Roots)")}
-        if "personId" in cols:
-            conn.execute("DROP TABLE Roots")
+        conn.execute(SCHEMA_SQL.read_text())
 
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS Roots (
-                id INTEGER PRIMARY KEY,
-                title TEXT NOT NULL DEFAULT 'ROOT',
-                generation INT NOT NULL DEFAULT 1
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS RootMembers (
-                id INTEGER PRIMARY KEY,
-                rootId INT NOT NULL,
-                personId INT NOT NULL UNIQUE,
-                FOREIGN KEY (rootId) REFERENCES Roots(id) ON DELETE CASCADE,
-                FOREIGN KEY (personId) REFERENCES People(id) ON DELETE CASCADE
-            )
-            """
-        )
-        # Login accounts. personId links a user to "who they are" in the
-        # family tree; it's informational only (nothing in the tree logic
-        # depends on it) and is nullable since not every account maps to a
-        # person in the tree.
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS Users (
-                id INTEGER PRIMARY KEY,
-                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                passwordHash TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'viewer',
-                personId INT,
-                createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-                FOREIGN KEY (personId) REFERENCES People(id) ON DELETE SET NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS Sessions (
-                token TEXT PRIMARY KEY,
-                userId INT NOT NULL,
-                createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-                expiresAt TEXT NOT NULL,
-                FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
-            )
-            """
-        )
-
-        # Purge link rows that reference people who no longer exist. These
-        # predate foreign-key enforcement; left in place they render as
-        # dangling half-edges in the UI and trip PRAGMA foreign_key_check.
+        # Purge link rows that reference people who no longer exist. Postgres
+        # enforces the FKs now, so this only ever matters for data seeded from
+        # the old pre-enforcement SQLite file; left in place they render as
+        # dangling half-edges in the UI.
         for sql, label in (
             ("DELETE FROM Parents WHERE childId NOT IN (SELECT id FROM People)", "Parents (child)"),
             ("DELETE FROM Parents WHERE parent1Id NOT IN (SELECT id FROM People)", "Parents (parent1)"),
@@ -215,7 +178,7 @@ def ensure_initial_admin():
         username = os.environ.get("FAMILYTREE_ADMIN_USERNAME", "admin")
         password = os.environ.get("FAMILYTREE_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
         conn.execute(
-            "INSERT INTO Users (username, passwordHash, role, personId) VALUES (?, ?, 'admin', NULL)",
+            "INSERT INTO Users (username, passwordHash, role, personId) VALUES (%s, %s, 'admin', NULL)",
             (username, hash_password(password)),
         )
         print("=" * 64)
@@ -253,8 +216,8 @@ def _clear_login_failures(ip):
 def create_session(conn, user_id):
     token = secrets.token_urlsafe(32)
     conn.execute(
-        "INSERT INTO Sessions (token, userId, expiresAt) VALUES (?, ?, datetime('now', ?))",
-        (token, user_id, f"+{SESSION_TTL_SECONDS} seconds"),
+        "INSERT INTO Sessions (token, userId, expiresAt) VALUES (%s, %s, now() + %s)",
+        (token, user_id, timedelta(seconds=SESSION_TTL_SECONDS)),
     )
     return token
 
@@ -264,9 +227,9 @@ def get_session_user(conn, token):
         return None
     row = conn.execute(
         """
-        SELECT Users.id, Users.username, Users.role, Users.personId
+        SELECT Users.id, Users.username, Users.role, Users.personId AS "personId"
         FROM Sessions JOIN Users ON Users.id = Sessions.userId
-        WHERE Sessions.token = ? AND Sessions.expiresAt > datetime('now')
+        WHERE Sessions.token = %s AND Sessions.expiresAt > now()
         """,
         (token,),
     ).fetchone()
@@ -276,8 +239,8 @@ def get_session_user(conn, token):
 def login(username, password):
     username = str(username or "").strip()
     with db(write=True) as conn:
-        row = conn.execute("SELECT * FROM Users WHERE username = ? COLLATE NOCASE", (username,)).fetchone()
-        if row is None or not verify_password(password or "", row["passwordHash"]):
+        row = conn.execute("SELECT * FROM Users WHERE lower(username) = lower(%s)", (username,)).fetchone()
+        if row is None or not verify_password(password or "", row["passwordhash"]):
             raise ValueError("Kullanıcı adı veya şifre hatalı.")
         token = create_session(conn, row["id"])
         return token, _user_public(row)
@@ -287,12 +250,12 @@ def change_own_password(user_id, current_password, new_password):
     if len(new_password or "") < 8:
         raise ValueError("Yeni şifre en az 8 karakter olmalıdır.")
     with db(write=True) as conn:
-        row = conn.execute("SELECT passwordHash FROM Users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT passwordHash FROM Users WHERE id = %s", (user_id,)).fetchone()
         if row is None:
             raise LookupError("Kullanıcı bulunamadı.")
-        if not verify_password(current_password or "", row["passwordHash"]):
+        if not verify_password(current_password or "", row["passwordhash"]):
             raise ValueError("Mevcut şifre yanlış.")
-        conn.execute("UPDATE Users SET passwordHash = ? WHERE id = ?", (hash_password(new_password), user_id))
+        conn.execute("UPDATE Users SET passwordHash = %s WHERE id = %s", (hash_password(new_password), user_id))
 
 
 def _user_public(row):
@@ -300,8 +263,8 @@ def _user_public(row):
         "id": row["id"],
         "username": row["username"],
         "role": row["role"],
-        "personId": row["personId"],
-        "createdAt": row["createdAt"],
+        "personId": row["personid"],
+        "createdAt": row["createdat"],
     }
 
 
@@ -318,7 +281,7 @@ def _validate_person_id(conn, person_id):
         person_id = int(person_id)
     except (TypeError, ValueError):
         raise ValueError("Geçersiz kişi kimliği.")
-    if conn.execute("SELECT id FROM People WHERE id = ?", (person_id,)).fetchone() is None:
+    if conn.execute("SELECT id FROM People WHERE id = %s", (person_id,)).fetchone() is None:
         raise ValueError(f"Kişi ({person_id}) bulunamadı.")
     return person_id
 
@@ -347,18 +310,18 @@ def create_user(fields):
 
     with db(write=True) as conn:
         person_id = _validate_person_id(conn, fields.get("personId"))
-        if conn.execute("SELECT id FROM Users WHERE username = ? COLLATE NOCASE", (username,)).fetchone():
+        if conn.execute("SELECT id FROM Users WHERE lower(username) = lower(%s)", (username,)).fetchone():
             raise ValueError("Bu kullanıcı adı zaten kullanılıyor.")
-        cur = conn.execute(
-            "INSERT INTO Users (username, passwordHash, role, personId) VALUES (?, ?, ?, ?)",
+        new_id = conn.execute(
+            "INSERT INTO Users (username, passwordHash, role, personId) VALUES (%s, %s, %s, %s) RETURNING id",
             (username, hash_password(password), role, person_id),
-        )
-        return _user_public(conn.execute("SELECT * FROM Users WHERE id = ?", (cur.lastrowid,)).fetchone())
+        ).fetchone()["id"]
+        return _user_public(conn.execute("SELECT * FROM Users WHERE id = %s", (new_id,)).fetchone())
 
 
 def update_user(user_id, fields):
     with db(write=True) as conn:
-        row = conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone()
         if row is None:
             raise LookupError("Kullanıcı bulunamadı.")
 
@@ -367,42 +330,42 @@ def update_user(user_id, fields):
             if not username:
                 raise ValueError("Kullanıcı adı boş olamaz.")
             existing = conn.execute(
-                "SELECT id FROM Users WHERE username = ? COLLATE NOCASE AND id != ?", (username, user_id)
+                "SELECT id FROM Users WHERE lower(username) = lower(%s) AND id != %s", (username, user_id)
             ).fetchone()
             if existing:
                 raise ValueError("Bu kullanıcı adı zaten kullanılıyor.")
-            conn.execute("UPDATE Users SET username = ? WHERE id = ?", (username, user_id))
+            conn.execute("UPDATE Users SET username = %s WHERE id = %s", (username, user_id))
 
         if "role" in fields:
             new_role = _validate_role(fields["role"])
             if row["role"] == "admin" and new_role != "admin":
                 _last_admin_guard(conn, action="rolü değiştirilemez")
-            conn.execute("UPDATE Users SET role = ? WHERE id = ?", (new_role, user_id))
+            conn.execute("UPDATE Users SET role = %s WHERE id = %s", (new_role, user_id))
 
         if "personId" in fields:
             person_id = _validate_person_id(conn, fields["personId"])
-            conn.execute("UPDATE Users SET personId = ? WHERE id = ?", (person_id, user_id))
+            conn.execute("UPDATE Users SET personId = %s WHERE id = %s", (person_id, user_id))
 
         if fields.get("password"):
             password = str(fields["password"])
             if len(password) < 8:
                 raise ValueError("Şifre en az 8 karakter olmalıdır.")
-            conn.execute("UPDATE Users SET passwordHash = ? WHERE id = ?", (hash_password(password), user_id))
+            conn.execute("UPDATE Users SET passwordHash = %s WHERE id = %s", (hash_password(password), user_id))
 
-        return _user_public(conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone())
+        return _user_public(conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone())
 
 
 def delete_user(user_id, acting_user_id):
     if user_id == acting_user_id:
         raise ValueError("Kendi hesabınızı silemezsiniz.")
     with db(write=True) as conn:
-        row = conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone()
         if row is None:
             raise LookupError("Kullanıcı bulunamadı.")
         if row["role"] == "admin":
             _last_admin_guard(conn, action="silinemez")
-        # Sessions cascade on the Users delete now that foreign_keys is on.
-        conn.execute("DELETE FROM Users WHERE id = ?", (user_id,))
+        # Sessions cascade on the Users delete (Postgres enforces the FK).
+        conn.execute("DELETE FROM Users WHERE id = %s", (user_id,))
 
 
 def fetch_tree():
@@ -411,19 +374,19 @@ def fetch_tree():
         spouses = list(conn.execute("SELECT spouse1Id, spouse2Id FROM Spouses"))
         parents = list(conn.execute("SELECT childId, parent1Id, parent2Id FROM Parents"))
         roots = [dict(row) for row in conn.execute("SELECT id, title, generation FROM Roots ORDER BY id")]
-        member_of = {row["personId"]: row["rootId"] for row in conn.execute("SELECT rootId, personId FROM RootMembers")}
+        member_of = {row["personid"]: row["rootid"] for row in conn.execute("SELECT rootId, personId FROM RootMembers")}
 
     # Group the edge tables by person once, rather than rescanning them per
     # person (was O(people x edges)).
     spouse_map = {}
     for row in spouses:
-        a, b = row["spouse1Id"], row["spouse2Id"]
+        a, b = row["spouse1id"], row["spouse2id"]
         spouse_map.setdefault(a, []).append(b)
         spouse_map.setdefault(b, []).append(a)
     parent_map = {}
     for row in parents:
-        ids = [pid for pid in (row["parent1Id"], row["parent2Id"]) if pid is not None]
-        parent_map.setdefault(row["childId"], []).extend(ids)
+        ids = [pid for pid in (row["parent1id"], row["parent2id"]) if pid is not None]
+        parent_map.setdefault(row["childid"], []).extend(ids)
 
     for person in people:
         pid = person["id"]
@@ -441,11 +404,11 @@ def _ancestor_ids(conn, person_id):
     stack = [person_id]
     while stack:
         row = conn.execute(
-            "SELECT parent1Id, parent2Id FROM Parents WHERE childId = ?", (stack.pop(),)
+            "SELECT parent1Id, parent2Id FROM Parents WHERE childId = %s", (stack.pop(),)
         ).fetchone()
         if not row:
             continue
-        for pid in (row["parent1Id"], row["parent2Id"]):
+        for pid in (row["parent1id"], row["parent2id"]):
             if pid is not None and pid not in seen:
                 seen.add(pid)
                 stack.append(pid)
@@ -484,7 +447,7 @@ def _coerce_id_list(values, *, self_id, kind):
 
 def _require_people_exist(conn, ids, *, kind):
     for pid in ids:
-        if conn.execute("SELECT id FROM People WHERE id = ?", (pid,)).fetchone() is None:
+        if conn.execute("SELECT id FROM People WHERE id = %s", (pid,)).fetchone() is None:
             raise ValueError(f"{kind} olarak seçilen kişi ({pid}) bulunamadı.")
 
 
@@ -496,26 +459,26 @@ def _update_parents(conn, person_id, parent_ids):
         raise ValueError("En fazla 2 ebeveyn seçilebilir.")
 
     for pid in ids:
-        if conn.execute("SELECT id FROM People WHERE id = ?", (pid,)).fetchone() is None:
+        if conn.execute("SELECT id FROM People WHERE id = %s", (pid,)).fetchone() is None:
             raise ValueError(f"Ebeveyn olarak seçilen kişi ({pid}) bulunamadı.")
         if person_id in _ancestor_ids(conn, pid):
             raise ValueError("Bu seçim döngüsel bir soy ilişkisi oluşturur.")
 
-    existing = conn.execute("SELECT id FROM Parents WHERE childId = ?", (person_id,)).fetchone()
+    existing = conn.execute("SELECT id FROM Parents WHERE childId = %s", (person_id,)).fetchone()
     if not ids:
         if existing:
-            conn.execute("DELETE FROM Parents WHERE childId = ?", (person_id,))
+            conn.execute("DELETE FROM Parents WHERE childId = %s", (person_id,))
         return
 
     parent1_id, parent2_id = ids[0], (ids[1] if len(ids) > 1 else None)
     if existing:
         conn.execute(
-            "UPDATE Parents SET parent1Id = ?, parent2Id = ? WHERE childId = ?",
+            "UPDATE Parents SET parent1Id = %s, parent2Id = %s WHERE childId = %s",
             (parent1_id, parent2_id, person_id),
         )
     else:
         conn.execute(
-            "INSERT INTO Parents (id, childId, parent1Id, parent2Id) VALUES (?, ?, ?, ?)",
+            "INSERT INTO Parents (id, childId, parent1Id, parent2Id) VALUES (%s, %s, %s, %s)",
             (_next_id(conn, "Parents"), person_id, parent1_id, parent2_id),
         )
 
@@ -530,23 +493,23 @@ def _set_spouses(conn, person_id, spouse_ids, *, replace):
     _require_people_exist(conn, ids, kind="Eş")
 
     existing_rows = conn.execute(
-        "SELECT id, spouse1Id, spouse2Id FROM Spouses WHERE spouse1Id = ? OR spouse2Id = ?",
+        "SELECT id, spouse1Id, spouse2Id FROM Spouses WHERE spouse1Id = %s OR spouse2Id = %s",
         (person_id, person_id),
     ).fetchall()
     existing_partner_ids = {
-        (row["spouse2Id"] if row["spouse1Id"] == person_id else row["spouse1Id"]): row["id"]
+        (row["spouse2id"] if row["spouse1id"] == person_id else row["spouse1id"]): row["id"]
         for row in existing_rows
     }
 
     if replace:
         for partner_id, row_id in existing_partner_ids.items():
             if partner_id not in ids:
-                conn.execute("DELETE FROM Spouses WHERE id = ?", (row_id,))
+                conn.execute("DELETE FROM Spouses WHERE id = %s", (row_id,))
 
     for sid in ids:
         if sid not in existing_partner_ids:
             conn.execute(
-                "INSERT INTO Spouses (id, spouse1Id, spouse2Id) VALUES (?, ?, ?)",
+                "INSERT INTO Spouses (id, spouse1Id, spouse2Id) VALUES (%s, %s, %s)",
                 (_next_id(conn, "Spouses"), person_id, sid),
             )
 
@@ -562,12 +525,12 @@ def _validate_generation(value):
 
 
 def _root_dict(conn, root_id):
-    row = conn.execute("SELECT id, title, generation FROM Roots WHERE id = ?", (root_id,)).fetchone()
+    row = conn.execute("SELECT id, title, generation FROM Roots WHERE id = %s", (root_id,)).fetchone()
     if row is None:
         raise LookupError("Kök bulunamadı.")
     members = [
-        r["personId"]
-        for r in conn.execute("SELECT personId FROM RootMembers WHERE rootId = ? ORDER BY personId", (root_id,))
+        r["personid"]
+        for r in conn.execute("SELECT personId FROM RootMembers WHERE rootId = %s ORDER BY personId", (root_id,))
     ]
     return {"id": row["id"], "title": row["title"], "generation": row["generation"], "memberIds": members}
 
@@ -578,10 +541,10 @@ def _set_root_members(conn, root_id, member_ids):
 
     # A person belongs to at most one root: clear this root's current members
     # and any prior membership of the incoming people, then re-insert.
-    conn.execute("DELETE FROM RootMembers WHERE rootId = ?", (root_id,))
+    conn.execute("DELETE FROM RootMembers WHERE rootId = %s", (root_id,))
     for mid in ids:
-        conn.execute("DELETE FROM RootMembers WHERE personId = ?", (mid,))
-        conn.execute("INSERT INTO RootMembers (rootId, personId) VALUES (?, ?)", (root_id, mid))
+        conn.execute("DELETE FROM RootMembers WHERE personId = %s", (mid,))
+        conn.execute("INSERT INTO RootMembers (rootId, personId) VALUES (%s, %s)", (root_id, mid))
 
 
 def create_root(fields):
@@ -589,8 +552,9 @@ def create_root(fields):
     generation = _validate_generation(fields.get("generation", 1))
     member_ids = fields.get("memberIds")
     with db(write=True) as conn:
-        cur = conn.execute("INSERT INTO Roots (title, generation) VALUES (?, ?)", (title, generation))
-        root_id = cur.lastrowid
+        root_id = conn.execute(
+            "INSERT INTO Roots (title, generation) VALUES (%s, %s) RETURNING id", (title, generation)
+        ).fetchone()["id"]
         if member_ids is not None:
             _set_root_members(conn, root_id, member_ids)
         return _root_dict(conn, root_id)
@@ -598,15 +562,15 @@ def create_root(fields):
 
 def update_root(root_id, fields):
     with db(write=True) as conn:
-        if conn.execute("SELECT id FROM Roots WHERE id = ?", (root_id,)).fetchone() is None:
+        if conn.execute("SELECT id FROM Roots WHERE id = %s", (root_id,)).fetchone() is None:
             raise LookupError("Kök bulunamadı.")
 
         if "title" in fields:
             title = str(fields.get("title") or "ROOT").strip() or "ROOT"
-            conn.execute("UPDATE Roots SET title = ? WHERE id = ?", (title, root_id))
+            conn.execute("UPDATE Roots SET title = %s WHERE id = %s", (title, root_id))
         if "generation" in fields:
             conn.execute(
-                "UPDATE Roots SET generation = ? WHERE id = ?",
+                "UPDATE Roots SET generation = %s WHERE id = %s",
                 (_validate_generation(fields.get("generation")), root_id),
             )
         if fields.get("memberIds") is not None:
@@ -617,10 +581,10 @@ def update_root(root_id, fields):
 
 def delete_root(root_id):
     with db(write=True) as conn:
-        if conn.execute("SELECT id FROM Roots WHERE id = ?", (root_id,)).fetchone() is None:
+        if conn.execute("SELECT id FROM Roots WHERE id = %s", (root_id,)).fetchone() is None:
             raise LookupError("Kök bulunamadı.")
-        # RootMembers cascades on the Roots delete now that foreign_keys is on.
-        conn.execute("DELETE FROM Roots WHERE id = ?", (root_id,))
+        # RootMembers cascades on the Roots delete (Postgres enforces the FK).
+        conn.execute("DELETE FROM Roots WHERE id = %s", (root_id,))
 
 
 def _clean_person_updates(fields):
@@ -638,23 +602,23 @@ def _clean_person_updates(fields):
 
 
 def _person_with_links(conn, person_id):
-    person = dict(conn.execute("SELECT * FROM People WHERE id = ?", (person_id,)).fetchone())
+    person = dict(conn.execute("SELECT * FROM People WHERE id = %s", (person_id,)).fetchone())
     parents_row = conn.execute(
-        "SELECT parent1Id, parent2Id FROM Parents WHERE childId = ?", (person_id,)
+        "SELECT parent1Id, parent2Id FROM Parents WHERE childId = %s", (person_id,)
     ).fetchone()
     person["parentIds"] = (
-        [pid for pid in (parents_row["parent1Id"], parents_row["parent2Id"]) if pid is not None]
+        [pid for pid in (parents_row["parent1id"], parents_row["parent2id"]) if pid is not None]
         if parents_row else []
     )
     spouse_rows = conn.execute(
-        "SELECT spouse1Id, spouse2Id FROM Spouses WHERE spouse1Id = ? OR spouse2Id = ?",
+        "SELECT spouse1Id, spouse2Id FROM Spouses WHERE spouse1Id = %s OR spouse2Id = %s",
         (person_id, person_id),
     ).fetchall()
     person["spouseIds"] = [
-        (r["spouse2Id"] if r["spouse1Id"] == person_id else r["spouse1Id"]) for r in spouse_rows
+        (r["spouse2id"] if r["spouse1id"] == person_id else r["spouse1id"]) for r in spouse_rows
     ]
-    rm = conn.execute("SELECT rootId FROM RootMembers WHERE personId = ?", (person_id,)).fetchone()
-    person["rootId"] = rm["rootId"] if rm else None
+    rm = conn.execute("SELECT rootId FROM RootMembers WHERE personId = %s", (person_id,)).fetchone()
+    person["rootId"] = rm["rootid"] if rm else None
     return person
 
 
@@ -669,7 +633,7 @@ def create_person(fields):
     with db(write=True) as conn:
         new_id = _next_id(conn, "People")
         columns = ["id"] + list(updates.keys())
-        placeholders = ", ".join("?" for _ in columns)
+        placeholders = ", ".join("%s" for _ in columns)
         conn.execute(
             f"INSERT INTO People ({', '.join(columns)}) VALUES ({placeholders})",
             (new_id, *updates.values()),
@@ -682,7 +646,7 @@ def create_person(fields):
 
 def delete_person(person_id):
     with db(write=True) as conn:
-        if conn.execute("SELECT id FROM People WHERE id = ?", (person_id,)).fetchone() is None:
+        if conn.execute("SELECT id FROM People WHERE id = %s", (person_id,)).fetchone() is None:
             raise LookupError("Kişi bulunamadı.")
 
         # Detach this person from the Parents rows of their *children* first,
@@ -690,23 +654,23 @@ def delete_person(person_id):
         # than losing the row wholesale (which is what the ON DELETE CASCADE
         # would do). childId is unique per Parents row, so key off it.
         parent_rows = conn.execute(
-            "SELECT childId, parent1Id, parent2Id FROM Parents WHERE parent1Id = ? OR parent2Id = ?",
+            "SELECT childId, parent1Id, parent2Id FROM Parents WHERE parent1Id = %s OR parent2Id = %s",
             (person_id, person_id),
         ).fetchall()
         for prow in parent_rows:
-            if prow["parent1Id"] == person_id and prow["parent2Id"] is not None:
+            if prow["parent1id"] == person_id and prow["parent2id"] is not None:
                 conn.execute(
-                    "UPDATE Parents SET parent1Id = ?, parent2Id = NULL WHERE childId = ?",
-                    (prow["parent2Id"], prow["childId"]),
+                    "UPDATE Parents SET parent1Id = %s, parent2Id = NULL WHERE childId = %s",
+                    (prow["parent2id"], prow["childid"]),
                 )
-            elif prow["parent1Id"] == person_id:
-                conn.execute("DELETE FROM Parents WHERE childId = ?", (prow["childId"],))
+            elif prow["parent1id"] == person_id:
+                conn.execute("DELETE FROM Parents WHERE childId = %s", (prow["childid"],))
             else:
-                conn.execute("UPDATE Parents SET parent2Id = NULL WHERE childId = ?", (prow["childId"],))
+                conn.execute("UPDATE Parents SET parent2Id = NULL WHERE childId = %s", (prow["childid"],))
 
         # The person's own row + everything keyed to them (their Parents row as
         # a child, Spouses, RootMembers) goes via cascade on the People delete.
-        conn.execute("DELETE FROM People WHERE id = ?", (person_id,))
+        conn.execute("DELETE FROM People WHERE id = %s", (person_id,))
 
 
 def update_person(person_id, fields):
@@ -717,13 +681,13 @@ def update_person(person_id, fields):
         raise ValueError("Düzenlenecek geçerli bir alan gönderilmedi.")
 
     with db(write=True) as conn:
-        if conn.execute("SELECT id FROM People WHERE id = ?", (person_id,)).fetchone() is None:
+        if conn.execute("SELECT id FROM People WHERE id = %s", (person_id,)).fetchone() is None:
             raise LookupError("Kişi bulunamadı.")
 
         if updates:
-            set_clause = ", ".join(f"{key} = ?" for key in updates)
+            set_clause = ", ".join(f"{key} = %s" for key in updates)
             conn.execute(
-                f"UPDATE People SET {set_clause} WHERE id = ?",
+                f"UPDATE People SET {set_clause} WHERE id = %s",
                 (*updates.values(), person_id),
             )
         if parent_ids is not None:
@@ -798,7 +762,8 @@ ROUTES = [
 class Handler(BaseHTTPRequestHandler):
     # -- low-level helpers -------------------------------------------------
     def _send_json(self, status, payload, cookie=None):
-        body = json.dumps(payload).encode("utf-8")
+        # default=str: createdAt comes back from Postgres as a datetime.
+        body = json.dumps(payload, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -858,7 +823,7 @@ class Handler(BaseHTTPRequestHandler):
         token = self._get_cookie(SESSION_COOKIE_NAME)
         if token:
             with db(write=True) as conn:
-                conn.execute("DELETE FROM Sessions WHERE token = ?", (token,))
+                conn.execute("DELETE FROM Sessions WHERE token = %s", (token,))
         self._send_json(200, {"success": True}, cookie=_build_session_cookie("", max_age=0))
 
     # -- static files ---------------------------------------------------
@@ -978,8 +943,14 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-    if not DB_PATH.is_file():
-        print(f"data.sqlite not found at {DB_PATH}", file=sys.stderr)
+    try:
+        open_pool()
+        with db() as conn:
+            conn.execute("SELECT 1")
+    except (psycopg.OperationalError, PoolTimeout) as exc:
+        print(f"cannot reach PostgreSQL at {DATABASE_URL!r}: {exc}", file=sys.stderr)
+        print("set FAMILYTREE_DATABASE_URL, or run migrate_sqlite_to_pg.py for first-time setup.",
+              file=sys.stderr)
         sys.exit(1)
 
     ensure_schema()

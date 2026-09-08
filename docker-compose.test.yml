@@ -1,0 +1,21 @@
+# Scratch PostgreSQL for the test suite.
+#   docker compose -f docker-compose.test.yml up -d
+# Then run the tests (they default to this instance):
+#   python tests/test_api.py
+#   python tests/test_ui.py
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: familytree
+      POSTGRES_PASSWORD: familytree
+      POSTGRES_DB: familytree_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U familytree -d familytree_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15

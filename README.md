@@ -1,12 +1,22 @@
-Requires Python 3 (stdlib only, no extra installs). The frontend has no build
-step — all CSS and JS is served as-is, no CDN dependencies.
+Requires Python 3 and a reachable **PostgreSQL**. The frontend has no build step —
+all CSS and JS is served as-is, no CDN dependencies.
 
 ```bash
-python3 server.py
-# then open http://localhost:8000
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+# a local Postgres for development (or bring your own and set the URL below):
+docker compose -f docker-compose.test.yml up -d   # postgres on :5433
+export FAMILYTREE_DATABASE_URL=postgresql://familytree:familytree@localhost:5433/familytree_test
+
+python migrate_sqlite_to_pg.py    # one-time: load schema.sql + seed from data.sqlite
+python server.py                  # then open http://localhost:8000
 ```
 
-This serves the app *and* a small `/api` backed directly by `data.sqlite`, so editing a person in the UI ("Kişi Detayları" → pencil icon → Kaydet) writes straight to that file on disk. Editing needs this server — a plain static file server (`npx serve`, `python3 -m http.server`, `php -S`, etc.) will load the tree fine but can't save changes.
+`FAMILYTREE_DATABASE_URL` defaults to `postgresql:///familytree`. `server.py`
+applies `schema.sql` on startup, so `migrate_sqlite_to_pg.py` is only needed if you
+want the tree data that ships in `data.sqlite` (otherwise you start empty).
+
+This serves the app *and* a small `/api` backed by PostgreSQL, so editing a person in the UI ("Kişi Detayları" → pencil icon → Kaydet) writes straight to the database. Editing needs this server — a plain static file server (`npx serve`, `python3 -m http.server`, `php -S`, etc.) will load the tree fine but can't save changes.
 
 Pass a different port if 8000 is taken: `python3 server.py 8080`.
 
@@ -38,7 +48,9 @@ Any logged-in user can change their own password (key icon, top right — needs 
 ## Layout
 
 ```
-server.py         HTTP server + /api (route table, one write lock, FK-enforced SQLite)
+server.py         HTTP server + /api (route table, one write lock, psycopg pool)
+schema.sql        PostgreSQL DDL, applied on startup (idempotent)
+migrate_sqlite_to_pg.py  one-time: create schema + seed from data.sqlite
 index.html        markup only
 css/app.css       whole stylesheet (utilities + tree layout + dark theme)
 js/api.js         fetch() wrapper for /api
@@ -48,8 +60,9 @@ js/util.js        pure helpers (escaping, Turkish folding, colours, …)
 js/icons.js       inline SVG icon set (was the Lucide CDN)
 js/app.js         everything interactive (render pipeline, connectors, focus,
                   search, minimap, details panel, auth, admin panel)
-tests/            python3 tests/test_api.py  — API integration (needs stdlib only)
+tests/            python3 tests/test_api.py  — API integration (needs a test Postgres)
                   python3 tests/test_ui.py   — browser smoke test (needs playwright)
+                  both reset TEST_DATABASE_URL (default: the docker-compose one on :5433)
 ```
 
 ## Phone & tablet

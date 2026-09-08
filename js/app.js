@@ -1740,9 +1740,9 @@ import { startTour } from './tour.js';
         }
 
         // Saves the edited fields through the /api/people/:id endpoint (see
-        // js/api.js and server.py — the server owns data.sqlite and writes
-        // the update directly, so there's no browser file-write API or
-        // download involved), updates the in-memory hierarchy to match, then
+        // js/api.js and server.py — the server writes the update straight to
+        // its database, so there's no browser file-write API or download
+        // involved), updates the in-memory hierarchy to match, then
         // re-renders the tree and returns the panel to view mode.
         async function saveDetailsEdit(node) {
             const errEl = document.getElementById('edit-form-error');

@@ -5,9 +5,10 @@
 //   Jenkins           --nssm restart-->              "familytree" Windows service (server.py :8000)
 //   Apache            --mod_proxy-->                  127.0.0.1:8000
 //
-// The live database (data.sqlite) lives in APP_DIR and is never overwritten by a
-// deploy: robocopy /XF excludes it from both the copy and the /MIR purge.
-// See DEPLOY.md for the one-time server setup (NSSM service, Apache proxy, job).
+// The live database is PostgreSQL (a separate Windows service); deploys only
+// ever touch code. server.py runs from a venv in APP_DIR (psycopg).
+// See DEPLOY.md for the one-time server setup (PostgreSQL, NSSM service, Apache
+// proxy, job) and the one-time data load (migrate_sqlite_to_pg.py).
 
 pipeline {
   agent any
@@ -31,6 +32,10 @@ pipeline {
     // PYTHON: all-users python.org install. NSSM: wherever nssm.exe was dropped.
     PYTHON  = 'C:/Program Files/Python312/python.exe'
     NSSM    = 'C:\\tools\\nssm.exe'
+    // The deployed app and the test suite each get their own venv.
+    APP_PY  = 'C:\\apps\\familytree\\.venv\\Scripts\\python.exe'
+    // Scratch DB on the local PostgreSQL for the Test stage (see DEPLOY.md).
+    TEST_DATABASE_URL = 'postgresql://familytree_test:familytree_test@localhost/familytree_test'
   }
 
   stages {
@@ -60,8 +65,14 @@ pipeline {
 
     stage('Test') {
       steps {
-        // stdlib-only API integration test; spins up its own throwaway DB.
-        bat '"%PYTHON%" tests\\test_api.py'
+        // API integration test. Builds a workspace venv, then resets and seeds
+        // the scratch PostgreSQL database (TEST_DATABASE_URL) and exercises
+        // every endpoint against a real server.
+        bat '''
+          "%PYTHON%" -m venv .venv || exit /b 1
+          ".venv\\Scripts\\python.exe" -m pip install -q -r requirements.txt || exit /b 1
+          ".venv\\Scripts\\python.exe" tests\\test_api.py || exit /b 1
+        '''
       }
     }
 
@@ -81,9 +92,14 @@ pipeline {
       }
     }
 
-    stage('Seed database (first deploy only)') {
+    stage('Install dependencies') {
+      // server.py needs psycopg; keep the APP_DIR venv in sync with
+      // requirements.txt on every deploy (fast no-op when unchanged).
       steps {
-        bat 'if not exist "%APP_DIR%\\data.sqlite" copy /Y "%WORKSPACE%\\data.sqlite" "%APP_DIR%\\data.sqlite"'
+        bat '''
+          if not exist "%APP_PY%" "%PYTHON%" -m venv "%APP_DIR%\\.venv" || exit /b 1
+          "%APP_PY%" -m pip install -q -r "%APP_DIR%\\requirements.txt" || exit /b 1
+        '''
       }
     }
 

@@ -8,7 +8,6 @@ import http.client
 import os
 import shutil
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -18,6 +17,8 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pg_fixture import reset_and_seed  # noqa: E402
 PASS = FAIL = 0
 
 
@@ -37,23 +38,16 @@ def free_port():
 
 def main():
     tmp = tempfile.mkdtemp()
-    db_copy = Path(tmp) / "data.sqlite"
-    shutil.copy(ROOT / "data.sqlite", db_copy)
-    c = sqlite3.connect(db_copy)
-    for t in ("Sessions", "Users"):
-        try:
-            c.execute(f"DELETE FROM {t}")
-        except sqlite3.OperationalError:
-            pass
-    c.commit(); c.close()
+    database_url = reset_and_seed()
 
-    for name in ("server.py", "index.html", "version.json"):
+    for name in ("server.py", "schema.sql", "index.html", "version.json"):
         shutil.copy(ROOT / name, Path(tmp) / name)
     shutil.copytree(ROOT / "js", Path(tmp) / "js")
     shutil.copytree(ROOT / "css", Path(tmp) / "css")
 
     port = free_port()
-    env = {**os.environ, "FAMILYTREE_ADMIN_USERNAME": "admin", "FAMILYTREE_ADMIN_PASSWORD": "testpass123"}
+    env = {**os.environ, "FAMILYTREE_ADMIN_USERNAME": "admin", "FAMILYTREE_ADMIN_PASSWORD": "testpass123",
+           "FAMILYTREE_DATABASE_URL": database_url}
     proc = subprocess.Popen([sys.executable, str(Path(tmp) / "server.py"), str(port)],
                             cwd=tmp, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     base = f"http://localhost:{port}"
