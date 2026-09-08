@@ -116,7 +116,7 @@ def main():
         check("good login -> 200", s == 200 and user["role"] == "admin", (s, user))
 
         s, tree = c.req("GET", "/api/tree")
-        check("tree loads", s == 200 and len(tree["people"]) > 500 and "roots" in tree, s)
+        check("tree loads", s == 200 and len(tree["people"]) >= 15 and "roots" in tree, s)
         person0 = tree["people"][0]
         check("person has link arrays", isinstance(person0.get("spouseIds"), list) and isinstance(person0.get("parentIds"), list))
 

@@ -6,8 +6,8 @@ backed by PostgreSQL, so edits made in the UI are written straight to the
 database -- no browser file-write APIs, no downloads.
 
 Needs a reachable PostgreSQL; point FAMILYTREE_DATABASE_URL at it (default
-postgresql:///familytree). First-time setup loads the schema and initial data
-with migrate_sqlite_to_pg.py.
+postgresql:///familytree). The schema is created on startup (schema.sql), so an
+empty database is fine.
 
 Run with:
     python3 server.py [port]
@@ -949,8 +949,7 @@ def main():
             conn.execute("SELECT 1")
     except (psycopg.OperationalError, PoolTimeout) as exc:
         print(f"cannot reach PostgreSQL at {DATABASE_URL!r}: {exc}", file=sys.stderr)
-        print("set FAMILYTREE_DATABASE_URL, or run migrate_sqlite_to_pg.py for first-time setup.",
-              file=sys.stderr)
+        print("check FAMILYTREE_DATABASE_URL and that the database/role exist.", file=sys.stderr)
         sys.exit(1)
 
     ensure_schema()

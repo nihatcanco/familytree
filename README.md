@@ -8,13 +8,12 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 docker compose -f docker-compose.test.yml up -d   # postgres on :5433
 export FAMILYTREE_DATABASE_URL=postgresql://familytree:familytree@localhost:5433/familytree_test
 
-python migrate_sqlite_to_pg.py    # one-time: load schema.sql + seed from data.sqlite
 python server.py                  # then open http://localhost:8000
 ```
 
 `FAMILYTREE_DATABASE_URL` defaults to `postgresql:///familytree`. `server.py`
-applies `schema.sql` on startup, so `migrate_sqlite_to_pg.py` is only needed if you
-want the tree data that ships in `data.sqlite` (otherwise you start empty).
+applies `schema.sql` on startup, so it runs against an empty database — you enter
+the tree through the UI.
 
 This serves the app *and* a small `/api` backed by PostgreSQL, so editing a person in the UI ("Kişi Detayları" → pencil icon → Kaydet) writes straight to the database. Editing needs this server — a plain static file server (`npx serve`, `python3 -m http.server`, `php -S`, etc.) will load the tree fine but can't save changes.
 
@@ -50,7 +49,6 @@ Any logged-in user can change their own password (key icon, top right — needs 
 ```
 server.py         HTTP server + /api (route table, one write lock, psycopg pool)
 schema.sql        PostgreSQL DDL, applied on startup (idempotent)
-migrate_sqlite_to_pg.py  one-time: create schema + seed from data.sqlite
 index.html        markup only
 css/app.css       whole stylesheet (utilities + tree layout + dark theme)
 js/api.js         fetch() wrapper for /api

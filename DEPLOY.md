@@ -52,42 +52,32 @@ Pick folders:
 
 ## 1a. PostgreSQL setup
 
-After installing PostgreSQL, create the app database and a login role. From an
-elevated shell (adjust the `psql` path / version):
+After installing PostgreSQL, create the app database and a login role. Do it in
+an **interactive** `psql` session so the console doesn't mangle the password
+(cmd eats `%` and `&`); use an alphanumeric password to keep the connection URL
+simple:
 
 ```bat
-set PGBIN=C:\Program Files\PostgreSQL\17\bin
-"%PGBIN%\psql" -U postgres -c "CREATE ROLE familytree LOGIN PASSWORD 'CHANGE-ME';"
-"%PGBIN%\psql" -U postgres -c "CREATE DATABASE familytree OWNER familytree;"
+"C:\Program Files\PostgreSQL\18\bin\psql" -U postgres
+```
+```sql
+CREATE ROLE familytree      LOGIN PASSWORD 'pick-an-alnum-password';
+CREATE DATABASE familytree      OWNER familytree;
+-- scratch DB the Jenkins Test stage resets on every build (must match
+-- TEST_DATABASE_URL in the Jenkinsfile):
+CREATE ROLE familytree_test LOGIN PASSWORD 'familytree_test';
+CREATE DATABASE familytree_test OWNER familytree_test;
+\q
 ```
 
 The connection string the app uses (keep the password in sync):
 
 ```
-postgresql://familytree:CHANGE-ME@localhost/familytree
+postgresql://familytree:pick-an-alnum-password@localhost/familytree
 ```
 
-Also create the scratch database the Jenkins **Test** stage resets on every build
-(`TEST_DATABASE_URL` in the `Jenkinsfile`):
-
-```bat
-"%PGBIN%\psql" -U postgres -c "CREATE ROLE familytree_test LOGIN PASSWORD 'familytree_test';"
-"%PGBIN%\psql" -U postgres -c "CREATE DATABASE familytree_test OWNER familytree_test;"
-```
-
-### One-time initial data load
-
-The repo ships `data.sqlite` purely as the seed source. Once, on the server,
-load the schema and the current tree into the live database:
-
-```bat
-cd C:\apps\familytree
-set FAMILYTREE_DATABASE_URL=postgresql://familytree:CHANGE-ME@localhost/familytree
-.venv\Scripts\python migrate_sqlite_to_pg.py
-```
-
-(`server.py` also applies `schema.sql` itself on every startup, so if you start
-with an empty database and enter data through the UI you can skip this.)
+`server.py` applies `schema.sql` on every startup, so the live database starts
+empty and fills up through the UI — there is no data-import step.
 
 ---
 
@@ -138,8 +128,7 @@ nssm set familytree AppEnvironmentExtra FAMILYTREE_SECURE_COOKIES=1 FAMILYTREE_D
 
 Don't start it yet — it needs `C:\apps\familytree\` to exist with `server.py` and
 its `.venv`. The first Jenkins build creates both. `server.py` applies `schema.sql`
-on startup, so an empty database is fine; run `migrate_sqlite_to_pg.py` (§1a) first
-if you want the existing tree.
+on startup, so it comes up against an empty database with no import step.
 
 ### First-run admin account
 
@@ -234,11 +223,8 @@ If the Jenkins box is reachable from GitHub:
 
 ## Notes
 
-- **`data.sqlite` is committed to the repo** and is only the one-time seed source
-  for `migrate_sqlite_to_pg.py` (§1a). Nothing reads it at runtime; deploys exclude
-  it (`robocopy /XF data.sqlite`).
-- **Backups** are now a scheduled `pg_dump`, e.g. a daily Task Scheduler job:
-  `"%PGBIN%\pg_dump" -U familytree -Fc familytree > C:\backups\familytree-%DATE%.dump`
+- **Backups**: a scheduled `pg_dump`, e.g. a daily Task Scheduler job:
+  `"C:\Program Files\PostgreSQL\18\bin\pg_dump" -U familytree -Fc familytree > C:\backups\familytree-%DATE%.dump`
   Restore with `pg_restore -U familytree -d familytree --clean <file>`.
 - To roll back: `git revert` on `main`, let the next poll deploy it. The database
   is unaffected by code rollbacks (`schema.sql` is additive — `CREATE TABLE IF NOT

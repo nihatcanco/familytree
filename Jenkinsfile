@@ -6,9 +6,9 @@
 //   Apache            --mod_proxy-->                  127.0.0.1:8000
 //
 // The live database is PostgreSQL (a separate Windows service); deploys only
-// ever touch code. server.py runs from a venv in APP_DIR (psycopg).
-// See DEPLOY.md for the one-time server setup (PostgreSQL, NSSM service, Apache
-// proxy, job) and the one-time data load (migrate_sqlite_to_pg.py).
+// ever touch code. server.py runs from a venv in APP_DIR (psycopg) and creates
+// its schema on startup. See DEPLOY.md for the one-time server setup
+// (PostgreSQL, NSSM service, Apache proxy, job).
 
 pipeline {
   agent any
@@ -81,7 +81,6 @@ pipeline {
         bat '''
           if not exist "%APP_DIR%" mkdir "%APP_DIR%"
           robocopy "%WORKSPACE%" "%APP_DIR%" /MIR /NFL /NDL /NP /R:2 /W:5 ^
-            /XF data.sqlite ^
             /XD .git .github tests __pycache__ .venv-test .venv .claude logs
           set RC=%ERRORLEVEL%
           rem robocopy: 0-7 = success, 8+ = real error
