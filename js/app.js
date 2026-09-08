@@ -174,8 +174,8 @@ import { startTour } from './tour.js';
                 if (!res.ok) throw new Error(res.status);
                 const v = await res.json();
                 el.textContent = v.build === 'dev'
-                    ? 'yerel geliştirme'
-                    : `sürüm ${v.build}` + (v.commit ? ` · ${v.commit}` : '');
+                    ? 'dev build'
+                    : `build ${v.build}`/* + (v.commit ? ` · ${v.commit}` : '')*/;
                 if (v.builtAt) {
                     const d = new Date(v.builtAt);
                     if (!isNaN(d)) el.title = `Derleme: ${d.toLocaleString('tr-TR')}`;
@@ -889,6 +889,15 @@ import { startTour } from './tour.js';
                     if (isNarrow()) {
                         currentZoom = 0.6;
                         updateZoomStyle();
+                    }
+
+                    // If the logged-in user is linked to a person, land on their
+                    // own card (centered, and selected) instead of the tree root.
+                    const ownCard = currentUserPersonId != null ? findPersonCardEl(currentUserPersonId) : null;
+                    if (ownCard) {
+                        scrollCardToCenter(ownCard);
+                        ownCard.click();
+                        return;
                     }
 
                     // Land on the first real person (not the root diamond), and
