@@ -177,6 +177,57 @@ def main():
             check("relationship picker opens", page.is_visible("#relationship-status"))
             page.click("#btn-relationship-cancel")
 
+            # --- Responsive / touch: phone viewport ---
+            mob = browser.new_context(viewport={"width": 390, "height": 844},
+                                      has_touch=True, is_mobile=True)
+            mp = mob.new_page()
+            mp.on("console", on_console)
+            mp.on("pageerror", lambda e: errors.append(f"pageerror(mobile): {e}"))
+            mp.goto(base + "/index.html", wait_until="networkidle")
+            check("mobile: login form fits viewport",
+                  mp.eval_on_selector("#login-form", "el => el.getBoundingClientRect().right <= innerWidth + 1"))
+            mp.fill("#login-username", "admin")
+            mp.fill("#login-password", "testpass123")
+            mp.click("#btn-login-submit")
+            mp.wait_for_selector(".tree-node-card[data-id]", timeout=15000)
+            mp.wait_for_timeout(1200)
+            mp.keyboard.press("Escape")  # dismiss tour
+            mp.wait_for_timeout(300)
+            check("mobile: sidebar toggle FAB visible", mp.is_visible("#btn-sidebar-toggle"))
+            check("mobile: no horizontal page scroll",
+                  mp.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"))
+            check("mobile: top toolbar within viewport",
+                  mp.eval_on_selector("#top-toolbar", "el => el.getBoundingClientRect().right <= innerWidth + 1"))
+            # the tour opens the drawer on mobile — close it, then a card tap
+            # should re-open it alongside the details panel
+            mp.click("#btn-sidebar-toggle")
+            mp.wait_for_timeout(400)
+            mp.click(".tree-node-card:not(.root-node)")
+            mp.wait_for_timeout(500)
+            check("mobile: card tap opens details drawer",
+                  mp.eval_on_selector("#app-sidebar", "el => el.classList.contains('ft-drawer-open')")
+                  and mp.is_visible("#person-details-panel"))
+            check("mobile: drawer within viewport",
+                  mp.eval_on_selector("#app-sidebar", "el => el.getBoundingClientRect().right <= innerWidth + 1"))
+            mp.click("#btn-close-details")
+            mp.wait_for_timeout(400)
+            check("mobile: closing details closes drawer",
+                  mp.eval_on_selector("#app-sidebar", "el => !el.classList.contains('ft-drawer-open')"))
+            z0 = mp.eval_on_selector("#tree-transform", "el => el.style.transform")
+            mp.evaluate("""() => {
+                const sc = document.getElementById('scroll-container');
+                const mk = (t, ts) => { const e = new Event(t, {bubbles:true, cancelable:true});
+                    e.touches = ts; e.targetTouches = ts; e.changedTouches = ts; sc.dispatchEvent(e); };
+                const r = sc.getBoundingClientRect(), cx = r.left + r.width/2, cy = r.top + r.height/2;
+                mk('touchstart', [{clientX:cx-40,clientY:cy},{clientX:cx+40,clientY:cy}]);
+                mk('touchmove',  [{clientX:cx-120,clientY:cy},{clientX:cx+120,clientY:cy}]);
+                mk('touchend', []);
+            }""")
+            mp.wait_for_timeout(200)
+            check("mobile: two-finger pinch zooms the canvas",
+                  mp.eval_on_selector("#tree-transform", "el => el.style.transform") != z0)
+            mob.close()
+
             check("no console errors / page exceptions", not errors, "\n     " + "\n     ".join(errors))
             browser.close()
     finally:

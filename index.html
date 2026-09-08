@@ -50,7 +50,7 @@
         </div>
 
         <!-- User bar: current user + admin panel entry + logout, next to the theme toggle -->
-        <div class="absolute top-4 right-4 z-30 flex items-center gap-2">
+        <div id="top-toolbar" class="absolute top-4 right-4 z-30 flex items-center gap-2">
             <button id="btn-help-tour" title="Tanıtım turu" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
                 <i data-lucide="help-circle" class="w-4 h-4"></i>
             </button>
@@ -267,6 +267,16 @@
             </div>
         </div>
     </div>
+
+    <!-- Mobile / tablet only: a floating button that slides the right sidebar
+         in as a drawer, plus its dimmed backdrop. Both are display:none above
+         the responsive breakpoint (see the Responsive section in css/app.css);
+         the `hidden` class keeps the button out of the login screen and is
+         removed by showApp() once a session is confirmed. -->
+    <button id="btn-sidebar-toggle" title="Araçlar" class="hidden bg-white text-slate-600 hover:text-slate-900 shadow-lg border border-slate-200 transition-colors cursor-pointer">
+        <i data-lucide="panel-right" class="w-5 h-5"></i>
+    </button>
+    <div id="sidebar-backdrop"></div>
 
     <!-- Application logic. See js/app.js and its imports (api.js, tree-model.js,
          card-view.js, util.js, icons.js). -->

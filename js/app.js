@@ -74,6 +74,8 @@ import { startTour } from './tour.js';
 
         const appTreeArea = document.getElementById('app-tree-area');
         const appSidebar = document.getElementById('app-sidebar');
+        const btnSidebarToggle = document.getElementById('btn-sidebar-toggle');
+        const sidebarBackdrop = document.getElementById('sidebar-backdrop');
         const currentUserBadge = document.getElementById('current-user-badge');
         const btnLogout = document.getElementById('btn-logout');
         const btnHelpTour = document.getElementById('btn-help-tour');
@@ -159,6 +161,38 @@ import { startTour } from './tour.js';
 
         // Initialize Lucide Icons on load
         createIcons();
+
+        // --- Responsive sidebar drawer (phone / tablet) ---
+        // Below the CSS breakpoint the right sidebar is position:fixed and
+        // slid off-screen; these toggle it in/out and dim the rest of the UI.
+        // On wide screens the sidebar is a normal flex column and these are
+        // effectively no-ops (the transform class does nothing without the
+        // media query, the backdrop stays display:none).
+        const mqNarrow = window.matchMedia('(max-width: 900px)');
+        const isNarrow = () => mqNarrow.matches;
+        function openSidebar() {
+            appSidebar.classList.add('ft-drawer-open');
+            if (sidebarBackdrop) sidebarBackdrop.classList.add('show');
+            // The minimap canvas / legend were off-screen with no usable size;
+            // redraw once the slide-in transition has settled.
+            setTimeout(() => drawMinimap(), 280);
+        }
+        function closeSidebar() {
+            appSidebar.classList.remove('ft-drawer-open');
+            if (sidebarBackdrop) sidebarBackdrop.classList.remove('show');
+        }
+        function toggleSidebar() {
+            if (appSidebar.classList.contains('ft-drawer-open')) closeSidebar();
+            else openSidebar();
+        }
+        const openSidebarIfNarrow = () => { if (isNarrow()) openSidebar(); };
+        const closeSidebarIfNarrow = () => { if (isNarrow()) closeSidebar(); };
+        if (btnSidebarToggle) btnSidebarToggle.addEventListener('click', toggleSidebar);
+        if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeSidebar);
+        mqNarrow.addEventListener('change', () => {
+            if (!isNarrow()) closeSidebar();
+            drawMinimap();
+        });
 
 
 
@@ -788,6 +822,14 @@ import { startTour } from './tour.js';
                 // Delay scrolling until the browser has finished painting the initial layout.
                 // This ensures getBoundingClientRect() returns the final, correct positions.
                 setTimeout(() => {
+                    // On a phone/tablet the tree almost never fits at 1:1 — open
+                    // zoomed out to the whole tree, then let the user pinch in.
+                    if (isNarrow()) {
+                        fitTreeToScreen();
+                        setTimeout(drawMinimap, 60);
+                        return;
+                    }
+
                     const targetCard = document.querySelector('.tree-node-card');
 
                     if (targetCard) {
@@ -1087,6 +1129,7 @@ import { startTour } from './tour.js';
 
             setTimeout(() => {
                 if (isFocusMode) {
+                    closeSidebarIfNarrow(); // give the fitted bloodline the full screen
                     updateZoomStyle(); // re-eval physical dimensions for the wrapper
                     fitTreeToScreen();
                 } else {
@@ -1205,6 +1248,45 @@ import { startTour } from './tour.js';
             scrollContainer.scrollTop = initialScrollTop - walkY;
         });
 
+        // --- Touch: one-finger drag pans natively (overflow:auto + touch-action);
+        // add two-finger pinch-zoom, mirroring applyWheelZoom — zoom around the
+        // pinch midpoint, keeping whatever's under the fingers stationary. ---
+        let pinchStart = null;
+        scrollContainer.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                const [a, b] = e.touches;
+                pinchStart = {
+                    dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY) || 1,
+                    zoom: currentZoom,
+                };
+            }
+        }, { passive: true });
+
+        scrollContainer.addEventListener('touchmove', (e) => {
+            if (!pinchStart || e.touches.length !== 2) return;
+            e.preventDefault(); // this gesture is a zoom, not a scroll
+            const [a, b] = e.touches;
+            const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY) || 1;
+            const oldZoom = currentZoom;
+            let newZoom = pinchStart.zoom * (dist / pinchStart.dist);
+            newZoom = Math.max(0.05, Math.min(newZoom, 2));
+            if (newZoom === oldZoom) return;
+
+            currentZoom = newZoom;
+            const rect = scrollContainer.getBoundingClientRect();
+            const midX = (a.clientX + b.clientX) / 2 - rect.left;
+            const midY = (a.clientY + b.clientY) / 2 - rect.top;
+            const zoomRatio = currentZoom / oldZoom;
+            updateZoomStyle(
+                (scrollContainer.scrollLeft + midX) * zoomRatio - midX,
+                (scrollContainer.scrollTop + midY) * zoomRatio - midY,
+            );
+        }, { passive: false });
+
+        const endPinch = (e) => { if (e.touches.length < 2) pinchStart = null; };
+        scrollContainer.addEventListener('touchend', endPinch);
+        scrollContainer.addEventListener('touchcancel', endPinch);
+
         // Minimap Drawing and Interaction
         function drawMinimap() {
             if (!minimapContainer || !minimapCanvas) return;
@@ -1309,6 +1391,7 @@ import { startTour } from './tour.js';
             personDetailsContent.innerHTML = detailsHTML;
             personDetailsPanel.classList.remove('hidden');
             personDetailsPanel.classList.add('flex');
+            openSidebarIfNarrow(); // the panel lives in the drawer on small screens
             if (btnEditDetails) btnEditDetails.classList.toggle('hidden', !canEditTree());
             if (btnDeleteDetails) btnDeleteDetails.classList.toggle('hidden', !canEditTree());
             createIcons();
@@ -1353,6 +1436,7 @@ import { startTour } from './tour.js';
             personDetailsContent.innerHTML = html;
             personDetailsPanel.classList.remove('hidden');
             personDetailsPanel.classList.add('flex');
+            openSidebarIfNarrow();
             if (btnEditDetails) btnEditDetails.classList.toggle('hidden', !canEditTree());
             if (btnDeleteDetails) btnDeleteDetails.classList.toggle('hidden', !canEditTree());
             createIcons();
@@ -1389,6 +1473,7 @@ import { startTour } from './tour.js';
 
             personDetailsPanel.classList.remove('hidden');
             personDetailsPanel.classList.add('flex');
+            openSidebarIfNarrow();
             if (btnEditDetails) btnEditDetails.classList.add('hidden');
             if (btnDeleteDetails) btnDeleteDetails.classList.add('hidden');
 
@@ -1666,6 +1751,7 @@ import { startTour } from './tour.js';
             currentDetailsPersonId = null;
             personDetailsPanel.classList.add('hidden');
             personDetailsPanel.classList.remove('flex');
+            closeSidebarIfNarrow();
             drawMinimap();
             if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         }
@@ -1764,6 +1850,7 @@ import { startTour } from './tour.js';
 
             personDetailsPanel.classList.remove('hidden');
             personDetailsPanel.classList.add('flex');
+            openSidebarIfNarrow();
 
             document.getElementById('edit-field-name').focus();
             document.getElementById('btn-cancel-edit-details').addEventListener('click', () => {
@@ -2186,10 +2273,11 @@ ${cardsInner}
             document.querySelectorAll('.legend-item').forEach(el => {
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
-            
+
             personDetailsPanel.classList.add('hidden');
             personDetailsPanel.classList.remove('flex');
-            
+            closeSidebarIfNarrow();
+
             drawMinimap();
             if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         });
@@ -2435,6 +2523,7 @@ ${cardsInner}
             relationshipChain.classList.remove('hidden');
             relationshipChain.classList.add('flex');
 
+            openSidebarIfNarrow(); // surface the connecting-chain summary
             setTimeout(() => {
                 updateZoomStyle();
                 fitTreeToScreen();
@@ -2446,6 +2535,7 @@ ${cardsInner}
             if (isFocusMode) await toggleFocusMode(false);
             clearPickMarkers();
             clearHighlightsAndPanel();
+            closeSidebarIfNarrow(); // picking happens by tapping cards on the canvas
             relationshipMode = 'picking';
             relPick1 = null;
             relPick2 = null;
@@ -2715,12 +2805,15 @@ ${cardsInner}
             appTreeArea.classList.remove('hidden');
             appSidebar.classList.remove('hidden');
             appSidebar.classList.add('flex');
+            if (btnSidebarToggle) btnSidebarToggle.classList.remove('hidden');
         }
 
         function showLogin() {
             appTreeArea.classList.add('hidden');
             appSidebar.classList.add('hidden');
             appSidebar.classList.remove('flex');
+            closeSidebar();
+            if (btnSidebarToggle) btnSidebarToggle.classList.add('hidden');
             loginOverlay.classList.remove('hidden');
             loginPassword.value = '';
             setTimeout(() => loginUsername.focus(), 0);
@@ -2745,10 +2838,12 @@ ${cardsInner}
             showApp();
             await loadAndRenderTree();
             // Guided tutorial on every login (not on a silent session restore).
-            if (fresh) startTour();
+            // Several tour steps point at controls that live in the drawer, so
+            // open it first on narrow screens.
+            if (fresh) { openSidebarIfNarrow(); startTour(); }
         }
 
-        if (btnHelpTour) btnHelpTour.addEventListener('click', () => startTour());
+        if (btnHelpTour) btnHelpTour.addEventListener('click', () => { openSidebarIfNarrow(); startTour(); });
 
         currentUserBadge.addEventListener('click', () => {
             if (currentUserPersonId == null) return;

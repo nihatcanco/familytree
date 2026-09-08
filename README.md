@@ -51,3 +51,12 @@ js/app.js         everything interactive (render pipeline, connectors, focus,
 tests/            python3 tests/test_api.py  — API integration (needs stdlib only)
                   python3 tests/test_ui.py   — browser smoke test (needs playwright)
 ```
+
+## Phone & tablet
+
+Below 900px wide the right-hand toolbar collapses into a slide-in drawer,
+toggled by the floating button at the bottom-right (it also opens on its own
+when you tap a card, and closes when you close the details panel). The canvas
+takes one-finger drag to pan and two-finger pinch to zoom, and the tree opens
+zoomed out to fit the screen. Everything else — login, add/edit person, the
+admin panel, the guided tour — works at phone width.

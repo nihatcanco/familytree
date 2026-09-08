@@ -474,3 +474,95 @@ html.dark .root-node .root-diamond {
     background: #64748b;
     border-color: #94a3b8;
 }
+
+/* ============================================================================
+   Responsive — phone & tablet.
+
+   The tree canvas is already a free pan/zoom surface, so the work here is:
+     (a) turn the fixed 200px right sidebar into a slide-in drawer below the
+         breakpoint (toggled by #btn-sidebar-toggle, see js/app.js),
+     (b) keep the top toolbar, login screen and modals inside the viewport,
+     (c) allow one-finger panning + two-finger pinch-zoom on the canvas
+         (touch-action below; the pinch handler lives in js/app.js).
+   ============================================================================ */
+
+/* One-finger drag = native scroll/pan; the browser's own pinch-zoom and
+   double-tap-zoom are disabled here so the JS pinch handler owns that gesture. */
+#scroll-container { touch-action: pan-x pan-y; }
+
+/* The drawer chrome only exists on narrow screens. */
+#btn-sidebar-toggle { display: none; }
+#sidebar-backdrop { display: none; }
+
+@media (max-width: 900px) {
+    /* Right sidebar -> slide-in drawer anchored to the right edge. */
+    #app-sidebar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100%;
+        width: min(320px, 88vw);
+        transform: translateX(102%);
+        transition: transform 0.25s ease;
+        overflow-y: auto;
+        z-index: 120;
+    }
+    #app-sidebar.ft-drawer-open { transform: translateX(0); }
+
+    /* Let the drawer scroll as one column instead of the desktop layout's
+       flex-1 legend that assumes a full-height column. */
+    #generation-legend { flex: none; max-height: 34vh; }
+
+    #sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+        z-index: 110;
+    }
+    #sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
+
+    #btn-sidebar-toggle {
+        display: flex;
+        position: fixed;
+        right: 1rem;
+        bottom: 1rem;
+        z-index: 121; /* above the drawer (120) so it always toggles */
+        width: 3rem;
+        height: 3rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9999px;
+    }
+
+    /* Top toolbar: tighten spacing, allow it to wrap, and drop the wide
+       username badge (the name still shows in the admin panel / tour). */
+    #top-toolbar {
+        top: 0.5rem;
+        right: 0.5rem;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        max-width: calc(100vw - 5.5rem);
+    }
+    #current-user-badge { display: none; }
+    #people-count { top: 0.5rem; left: 0.5rem; }
+
+    /* Login + modals: never wider than the viewport, and scrollable if tall. */
+    #login-overlay,
+    #admin-panel-overlay,
+    #change-password-overlay { padding: 12px; overflow-y: auto; }
+    #login-form,
+    #change-password-form { width: 100%; max-width: 340px; }
+    #admin-panel-overlay > div { width: 100%; max-width: 480px; max-height: 88vh; }
+}
+
+@media (max-width: 380px) {
+    #top-toolbar { max-width: calc(100vw - 4.5rem); }
+}
+
+html.dark #sidebar-backdrop { background: rgba(2, 6, 23, 0.55); }
+html.dark #btn-sidebar-toggle { background-color: #1e293b; }
