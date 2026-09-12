@@ -50,25 +50,41 @@ pipeline {
       // number. Robocopy in 'Deploy code' copies it to APP_DIR as-is; the
       // repo's committed version.json (build "dev") is only for local runs.
       //
-      // Also cache-bust the two entry assets index.html loads directly
-      // (css/app.css, js/app.js) by appending "?v=<build>". server.py already
-      // sends Cache-Control: no-cache on every static file, but the app sits
-      // behind Apache's mod_proxy and, per DEPLOY.md, is reached through a
-      // tunnel/reverse-proxy setup that isn't guaranteed to honor that header
-      // -- a changed URL forces a fresh fetch regardless of what any
-      // in-between cache does with the headers.
+      // Also cache-bust every asset the browser fetches by URL, by appending
+      // "?v=<build>": the two entries index.html loads directly (css/app.css,
+      // js/app.js) AND every `./*.js` ES module specifier inside js/*.js
+      // (app.js imports api.js/tree-model.js/icons.js/util.js/card-view.js/
+      // tour.js; card-view.js and tour.js import further from there) -- each
+      // is its own browser-cached fetch, independent of how the importing
+      // file was loaded, so all of them need the same treatment or a deploy
+      // can end up running a fresh app.js against a stale helper module.
+      // server.py already sends Cache-Control: no-cache on every static file,
+      // but the app sits behind Apache's mod_proxy and, per DEPLOY.md, is
+      // reached through a tunnel/reverse-proxy setup that isn't guaranteed to
+      // honor that header -- a changed URL forces a fresh fetch regardless of
+      // what any in-between cache does with the headers.
       steps {
         powershell '''
-          $stamp = [ordered]@{ build = "$env:BUILD_NUMBER" } | ConvertTo-Json -Compress
+          $build = $env:BUILD_NUMBER
+          $stamp = [ordered]@{ build = $build } | ConvertTo-Json -Compress
           [System.IO.File]::WriteAllText("$env:WORKSPACE\\version.json", $stamp)
           Write-Host "version.json -> $stamp"
 
           $indexPath = "$env:WORKSPACE\\index.html"
           $html = [System.IO.File]::ReadAllText($indexPath)
-          $html = $html -replace 'href="css/app\\.css"', "href=`"css/app.css?v=$env:BUILD_NUMBER`""
-          $html = $html -replace 'src="js/app\\.js"', "src=`"js/app.js?v=$env:BUILD_NUMBER`""
+          $html = $html -replace 'href="css/app\\.css"', "href=`"css/app.css?v=$build`""
+          $html = $html -replace 'src="js/app\\.js"', "src=`"js/app.js?v=$build`""
           [System.IO.File]::WriteAllText($indexPath, $html)
-          Write-Host "index.html -> cache-busted css/app.css and js/app.js with build $env:BUILD_NUMBER"
+          Write-Host "index.html -> cache-busted css/app.css and js/app.js with build $build"
+
+          Get-ChildItem "$env:WORKSPACE\\js" -Filter *.js | ForEach-Object {
+            $original = [System.IO.File]::ReadAllText($_.FullName)
+            $updated = [regex]::Replace($original, "from '\\./([a-zA-Z0-9_-]+)\\.js'", "from './`$1.js?v=$build'")
+            if ($updated -ne $original) {
+              [System.IO.File]::WriteAllText($_.FullName, $updated)
+              Write-Host "$($_.Name) -> cache-busted its ./*.js imports with build $build"
+            }
+          }
         '''
       }
     }
