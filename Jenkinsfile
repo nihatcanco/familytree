@@ -49,11 +49,26 @@ pipeline {
       // Rewrite version.json so the app footer can show the Jenkins build
       // number. Robocopy in 'Deploy code' copies it to APP_DIR as-is; the
       // repo's committed version.json (build "dev") is only for local runs.
+      //
+      // Also cache-bust the two entry assets index.html loads directly
+      // (css/app.css, js/app.js) by appending "?v=<build>". server.py already
+      // sends Cache-Control: no-cache on every static file, but the app sits
+      // behind Apache's mod_proxy and, per DEPLOY.md, is reached through a
+      // tunnel/reverse-proxy setup that isn't guaranteed to honor that header
+      // -- a changed URL forces a fresh fetch regardless of what any
+      // in-between cache does with the headers.
       steps {
         powershell '''
           $stamp = [ordered]@{ build = "$env:BUILD_NUMBER" } | ConvertTo-Json -Compress
           [System.IO.File]::WriteAllText("$env:WORKSPACE\\version.json", $stamp)
           Write-Host "version.json -> $stamp"
+
+          $indexPath = "$env:WORKSPACE\\index.html"
+          $html = [System.IO.File]::ReadAllText($indexPath)
+          $html = $html -replace 'href="css/app\\.css"', "href=`"css/app.css?v=$env:BUILD_NUMBER`""
+          $html = $html -replace 'src="js/app\\.js"', "src=`"js/app.js?v=$env:BUILD_NUMBER`""
+          [System.IO.File]::WriteAllText($indexPath, $html)
+          Write-Host "index.html -> cache-busted css/app.css and js/app.js with build $env:BUILD_NUMBER"
         '''
       }
     }
