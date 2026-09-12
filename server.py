@@ -87,7 +87,14 @@ CONTENT_TYPES = {
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
     ".png": "image/png",
+    ".txt": "text/plain; charset=utf-8",
 }
+
+# Everything else under ROOT (server.py, schema.sql, logs/, .git, README.md,
+# tests/, ...) must stay unreachable over HTTP -- only these are the actual
+# frontend bundle.
+PUBLIC_STATIC_FILES = {"index.html", "version.json", "robots.txt"}
+PUBLIC_STATIC_DIRS = {"css", "js"}
 
 # Opened by open_pool() from main() (and lazily on first use, for the test
 # harness which imports this module and starts the server in-process). dict_row
@@ -831,6 +838,17 @@ class Handler(BaseHTTPRequestHandler):
         candidate = (ROOT / url_path.lstrip("/")).resolve()
         if candidate != ROOT and ROOT not in candidate.parents:
             self._send_json(403, {"error": "Forbidden"})
+            return
+        # Allowlist, not a traversal blacklist: only the actual frontend
+        # bundle is reachable, so app source, schema.sql, logs/, .git etc.
+        # sitting next to server.py can never be requested over HTTP -- checked
+        # against the *resolved* path so "/css/../server.py" can't sneak by.
+        parts = candidate.relative_to(ROOT).parts
+        is_public = (len(parts) == 1 and parts[0] in PUBLIC_STATIC_FILES) or (
+            len(parts) >= 2 and parts[0] in PUBLIC_STATIC_DIRS
+        )
+        if not is_public:
+            self._send_json(404, {"error": "Not found"})
             return
         if not candidate.is_file():
             self._send_json(404, {"error": "Not found"})
