@@ -173,13 +173,7 @@ import { startTour } from './tour.js';
                 const res = await fetch('version.json', { cache: 'no-store' });
                 if (!res.ok) throw new Error(res.status);
                 const v = await res.json();
-                el.textContent = v.build === 'dev'
-                    ? 'yerel geliştirme'
-                    : `sürüm ${v.build}` + (v.commit ? ` · ${v.commit}` : '');
-                if (v.builtAt) {
-                    const d = new Date(v.builtAt);
-                    if (!isNaN(d)) el.title = `Derleme: ${d.toLocaleString('tr-TR')}`;
-                }
+                el.textContent = v.build === 'dev' ? 'yerel geliştirme' : `sürüm ${v.build}`;
             } catch {
                 el.textContent = '';
             }

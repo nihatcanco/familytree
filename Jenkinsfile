@@ -51,12 +51,7 @@ pipeline {
       // repo's committed version.json (build "dev") is only for local runs.
       steps {
         powershell '''
-          $commit = if ($env:GIT_COMMIT) { $env:GIT_COMMIT.Substring(0, 7) } else { "unknown" }
-          $stamp = [ordered]@{
-            build   = "$env:BUILD_NUMBER"
-            commit  = $commit
-            builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-          } | ConvertTo-Json -Compress
+          $stamp = [ordered]@{ build = "$env:BUILD_NUMBER" } | ConvertTo-Json -Compress
           [System.IO.File]::WriteAllText("$env:WORKSPACE\\version.json", $stamp)
           Write-Host "version.json -> $stamp"
         '''
