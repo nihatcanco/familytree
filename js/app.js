@@ -192,6 +192,25 @@ import { startTour } from './tour.js';
         const mqNarrow = window.matchMedia('(max-width: 900px)');
         const isNarrow = () => mqNarrow.matches;
 
+        // The person-details bottom sheet stays `position: fixed` (see the
+        // CSS comment on #person-details-panel) so it has to escape mobile
+        // Safari's own bottom chrome by hand: that chrome doesn't report
+        // through env(safe-area-inset-*) (that's only the OS home-indicator
+        // area) and, since the page body never scrolls, never auto-collapses
+        // either. The Visual Viewport API is the one thing that reports how
+        // much of the layout viewport it's currently covering — track that
+        // gap in a custom property the sheet's margin-bottom reads.
+        if (window.visualViewport) {
+            const updateVvBottomGap = () => {
+                const vv = window.visualViewport;
+                const gap = window.innerHeight - (vv.height + vv.offsetTop);
+                document.documentElement.style.setProperty('--vv-bottom-gap', `${Math.max(0, gap)}px`);
+            };
+            window.visualViewport.addEventListener('resize', updateVvBottomGap);
+            window.visualViewport.addEventListener('scroll', updateVvBottomGap);
+            updateVvBottomGap();
+        }
+
         function openToolsDrawer() {
             appSidebar.classList.add('ft-drawer-open');
             if (sidebarBackdrop) sidebarBackdrop.classList.add('show');

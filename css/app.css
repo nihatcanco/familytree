@@ -517,12 +517,30 @@ html.dark .root-popup-diamond { border-color: #94a3b8; }
 /* Drawer / sheet chrome only exists below the breakpoint. `env(safe-area-*)`
    keeps it clear of the home-indicator / rounded-corner areas on notched
    phones (needs `viewport-fit=cover` in the viewport meta tag, set in
-   index.html, or the env() values are always 0). */
+   index.html, or the env() values are always 0).
+
+   `position: absolute` here (not `fixed`) is deliberate: mobile Safari's own
+   chrome (its docked bottom URL/tab bar, on top of the home-indicator area)
+   never gets a chance to auto-collapse on this page, because the body never
+   scrolls -- only #scroll-container does, internally. `position: fixed`
+   elements are anchored to a viewport size that assumes that chrome is
+   collapsed, so a `bottom` offset ends up placed *underneath* it: present in
+   the DOM, invisible and unreachable on a real phone (confirmed on an
+   iPhone 15 Pro / Safari), even though desktop and every emulated mobile
+   viewport -- which never render that chrome -- look completely fine.
+   `<body>` (position: relative, see index.html) uses 100dvh (below), which
+   *does* track that chrome live, so anchoring to it instead via `absolute`
+   keeps these on-screen regardless of the toolbar's state. The `margin-bottom`
+   is a second, independently-verified line of defense on top of that: it
+   reads the same `--vv-bottom-gap` custom property app.js keeps in sync via
+   the Visual Viewport API (see the comment on #person-details-panel below),
+   which is 0px whenever nothing is actually covering the button. */
 #btn-sidebar-toggle {
     display: none;
-    position: fixed;
+    position: absolute;
     right: calc(1rem + env(safe-area-inset-right));
     bottom: calc(1rem + env(safe-area-inset-bottom));
+    margin-bottom: var(--vv-bottom-gap, 0px);
     z-index: 140; /* above the drawer so it always toggles */
     width: 3rem;
     height: 3rem;
@@ -534,6 +552,17 @@ html.dark .root-popup-diamond { border-color: #94a3b8; }
 
 @media (max-width: 900px) {
     /* --- Tools drawer: the right rail, slid off the right edge. ---
+       Stays `position: fixed` (unlike #btn-sidebar-toggle above) because its
+       closed state parks it at `right: -110%` -- a huge offset that, as an
+       `absolute` box, would still count toward <body>'s layout width (an
+       absolutely positioned descendant can expand its containing block's
+       scrollable overflow even past `overflow: hidden`), inflating
+       `window.innerWidth` well past the real screen width and, with it,
+       every other `position: fixed` percentage calculation on the page
+       (confirmed: it broke the person-details sheet's centering). `fixed`
+       elements don't have that effect. Its own content can still end up
+       needing a scroll to clear mobile Safari's chrome as a result, but
+       `overflow-y: auto` here makes that a scroll, not a dead end.
        Animated with `right` rather than `transform` on purpose: the person
        details panel below is a `position: fixed` bottom sheet, and a
        transformed ancestor would trap it inside this off-screen drawer. */
@@ -562,7 +591,7 @@ html.dark .root-popup-diamond { border-color: #94a3b8; }
 
     #sidebar-backdrop {
         display: block;
-        position: fixed;
+        position: absolute; /* see #btn-sidebar-toggle above */
         inset: 0;
         background: rgba(15, 23, 42, 0.4);
         opacity: 0;
@@ -578,7 +607,18 @@ html.dark .root-popup-diamond { border-color: #94a3b8; }
 
     /* --- Person details: a bottom sheet, pulled out of the sidebar flow.
        Centered with a max-width so it doesn't stretch edge-to-edge on a
-       tablet; on a phone the max-width is moot and it fills the width. --- */
+       tablet; on a phone the max-width is moot and it fills the width.
+
+       Unlike the drawer above, this one has to stay `position: fixed` --
+       it's DOM-nested inside #app-sidebar and needs to escape that drawer's
+       box (an `absolute` descendant would instead be trapped by it, since
+       any positioned ancestor -- not just a transformed one -- establishes
+       the containing block for `absolute`). That leaves it exposed to the
+       same "anchored past mobile Safari's chrome" bug; `margin-bottom`
+       reads a `--vv-bottom-gap` custom property that app.js keeps in sync
+       with the Visual Viewport API (the one API that *does* report how much
+       of the layout viewport that chrome is currently covering), nudging
+       the sheet up clear of it. --- */
     #person-details-panel {
         position: fixed;
         left: 50%;
@@ -586,6 +626,7 @@ html.dark .root-popup-diamond { border-color: #94a3b8; }
         width: 100%;
         max-width: 520px;
         margin: 0;
+        margin-bottom: var(--vv-bottom-gap, 0px);
         max-height: 72vh;
         overflow-y: auto;
         border-radius: 18px 18px 0 0;
