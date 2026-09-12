@@ -2876,7 +2876,13 @@ ${cardsInner}
             const card = findPersonCardEl(personId);
             if (!card) return false;
             scrollCardToCenter(card);
-            card.click();
+            // Only simulate a click if not already highlighted, so repeated
+            // presses (e.g. the "go to my card" badge) stay idempotent
+            // instead of toggling the highlight off (see delegated click
+            // handler's isAlreadyHighlighted logic).
+            if (!card.classList.contains('highlighted')) {
+                card.click();
+            }
             return true;
         }
 
