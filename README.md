@@ -56,12 +56,15 @@ Any logged-in user can change their own password (key icon, top right — needs 
 
 `server.py` only ever speaks plain HTTP — for real internet exposure, put it behind a reverse proxy (nginx, Caddy, etc.) that terminates HTTPS, then set `FAMILYTREE_SECURE_COOKIES=1` when starting the server so the session cookie is marked `Secure`. Without that env var the cookie still works over plain HTTP (e.g. local/LAN use), but shouldn't be relied on over the open internet.
 
+Static file serving is allowlisted to the actual frontend bundle (`index.html`, `version.json`, `robots.txt`, `css/`, `js/`) — anything else sitting next to `server.py` in the app directory (`schema.sql`, `logs/`, `.git`, this README, `tests/`) is never reachable over HTTP, however it's deployed. `robots.txt` also tells crawlers not to index the app.
+
 ## Layout
 
 ```
 server.py         HTTP server + /api (route table, one write lock, psycopg pool)
 schema.sql        PostgreSQL DDL, applied on startup (idempotent)
 index.html        markup only
+robots.txt        blocks search-engine indexing (served as-is, see above)
 css/app.css       whole stylesheet (utilities + tree layout + dark theme)
 js/api.js         fetch() wrapper for /api
 js/tree-model.js  flat rows -> hierarchy -> tidy-tree layout (no DOM)

@@ -80,6 +80,7 @@ def main():
     shutil.copy(ROOT / "server.py", server_py)
     shutil.copy(ROOT / "schema.sql", Path(tmp) / "schema.sql")
     shutil.copy(ROOT / "index.html", Path(tmp) / "index.html")
+    shutil.copy(ROOT / "robots.txt", Path(tmp) / "robots.txt")
     shutil.copytree(ROOT / "js", Path(tmp) / "js")
     shutil.copytree(ROOT / "css", Path(tmp) / "css")
     proc = subprocess.Popen(
@@ -216,6 +217,14 @@ def main():
         conn.close()
         s, body = c.req("GET", "/../server.py")
         check("path traversal blocked", s in (403, 404), s)
+        s, body = c.req("GET", "/robots.txt")
+        check("robots.txt served", s == 200 and b"Disallow" in body, s)
+        # allowlist, not just traversal blocking: files that genuinely sit
+        # under ROOT (server.py, schema.sql) must still be unreachable
+        s, d = c.req("GET", "/server.py")
+        check("server.py not servable", s == 404, (s, d))
+        s, d = c.req("GET", "/schema.sql")
+        check("schema.sql not servable", s == 404, (s, d))
 
     finally:
         proc.terminate()
