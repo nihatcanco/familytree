@@ -455,8 +455,6 @@ def _update_parents(conn, person_id, parent_ids):
     if not isinstance(parent_ids, list) or len(parent_ids) > 2:
         raise ValueError("Geçersiz ebeveyn listesi.")
     ids = _coerce_id_list(parent_ids, self_id=person_id, kind="ebeveyn")
-    if len(ids) > 2:
-        raise ValueError("En fazla 2 ebeveyn seçilebilir.")
 
     for pid in ids:
         if conn.execute("SELECT id FROM People WHERE id = %s", (pid,)).fetchone() is None:

@@ -174,8 +174,8 @@ import { startTour } from './tour.js';
                 if (!res.ok) throw new Error(res.status);
                 const v = await res.json();
                 el.textContent = v.build === 'dev'
-                    ? 'dev build'
-                    : `build ${v.build}`/* + (v.commit ? ` · ${v.commit}` : '')*/;
+                    ? 'yerel geliştirme'
+                    : `sürüm ${v.build}` + (v.commit ? ` · ${v.commit}` : '');
                 if (v.builtAt) {
                     const d = new Date(v.builtAt);
                     if (!isNaN(d)) el.title = `Derleme: ${d.toLocaleString('tr-TR')}`;
@@ -3077,9 +3077,6 @@ ${cardsInner}
         });
 
         // --- Admin panel: user list, role changes, soyağacı kişisi bağlama ---
-        // (an unused, non-root-aware second copy of personLabel used to sit
-        // here and, by hoisting, shadow the real one above — the relationship
-        // chain then labelled root nodes as "#-1".)
 
         function populateAdminPersonSelect(selectEl, selectedId) {
             selectEl.innerHTML = buildPersonOptions(null, selectedId);

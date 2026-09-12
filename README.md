@@ -19,6 +19,18 @@ This serves the app *and* a small `/api` backed by PostgreSQL, so editing a pers
 
 Pass a different port if 8000 is taken: `python3 server.py 8080`.
 
+## Features
+
+- **Pan / zoom canvas** — drag to pan, Ctrl/⌘ + wheel or trackpad pinch to zoom, two-finger pinch and double-tap on touch devices.
+- **Search** — matches name, surname and other attributes, folding Turkish letters (`i`/`s`/`g`/`u`/`o`/`c` also match `ı`/`ş`/`ğ`/`ü`/`ö`/`ç`); step through matches with the arrow buttons.
+- **Focus mode** — click a card, then the focus icon in the details panel to show only that person's bloodline (ancestors, descendants and spouses) and fit it to the screen.
+- **İki kişi arası bağ** (relationship path) — pick any two people on the canvas and the shortest chain of relations connecting them is highlighted.
+- **Minimap + SVG export** — a click-to-jump overview of the whole tree, and a button to download the currently displayed tree(s) as one vector SVG image (sharp at any zoom, no size ceiling).
+- **Roots** — a "kök" (diamond) marks the origin of an independent family line with its own editable title and generation number; descendant generations are counted down from it.
+- **Dark / light theme** — toggled from the top bar; the choice is remembered per browser.
+- **Guided tour** — shown automatically on first login, replayable any time from the (?) button.
+- Full add / edit / delete for people and roots from the UI (see roles below), with cycle-safe parent assignment and cascading link cleanup on delete.
+
 ## Login & accounts
 
 The app requires a login. On the very first run (empty `Users` table), the server creates an `admin` account with a random password and prints it once to the console — copy it before it scrolls away, it is never shown again:
@@ -56,6 +68,7 @@ js/tree-model.js  flat rows -> hierarchy -> tidy-tree layout (no DOM)
 js/card-view.js   person/root node -> card HTML / SVG fragment
 js/util.js        pure helpers (escaping, Turkish folding, colours, …)
 js/icons.js       inline SVG icon set (was the Lucide CDN)
+js/tour.js        guided overlay tutorial (first login + the "?" button)
 js/app.js         everything interactive (render pipeline, connectors, focus,
                   search, minimap, details panel, auth, admin panel)
 tests/            python3 tests/test_api.py  — API integration (needs a test Postgres)

@@ -109,10 +109,3 @@ export const generationColors = [
     { hex: '#32e029', rgba: 'rgba(50, 224, 41, 0.3)' },    // 19: Çim Yeşili
     { hex: '#3229e0', rgba: 'rgba(50, 41, 224, 0.3)' }     // 20: Lacivert
 ];
-
-// Colour object for a 1-based generation number, wrapping (and safe for
-// non-positive input).
-export function generationColor(gen) {
-    const len = generationColors.length;
-    return generationColors[(((gen | 0) - 1) % len + len) % len];
-}

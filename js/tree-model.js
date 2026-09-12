@@ -120,7 +120,6 @@ function parseIds(value) {
 // collides with a (positive) person id while staying Number()-safe for the
 // connector code and `[data-id="-1"]` selectors.
 export const rootNodeId = (dbId) => -Math.abs(Number(dbId));
-export const isRootNodeId = (id) => Number(id) < 0;
 export const rootDbId = (id) => Math.abs(Number(id));
 
 // Transform flat person rows (+ standalone root rows) into the hierarchical
