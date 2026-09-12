@@ -81,7 +81,8 @@ pipeline {
         bat '''
           if not exist "%APP_DIR%" mkdir "%APP_DIR%"
           robocopy "%WORKSPACE%" "%APP_DIR%" /MIR /NFL /NDL /NP /R:2 /W:5 ^
-            /XD .git .github tests __pycache__ .venv-test .venv .claude logs
+            /XD .git .github tests __pycache__ .venv-test .venv .claude logs ^
+            /XF README.md DEPLOY.md Jenkinsfile docker-compose.test.yml .gitignore
           set RC=%ERRORLEVEL%
           rem robocopy: 0-7 = success, 8+ = real error
           if %RC% GEQ 8 (echo robocopy failed with exit code %RC% & exit /b %RC%)
