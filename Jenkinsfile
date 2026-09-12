@@ -86,6 +86,12 @@ pipeline {
           set RC=%ERRORLEVEL%
           rem robocopy: 0-7 = success, 8+ = real error
           if %RC% GEQ 8 (echo robocopy failed with exit code %RC% & exit /b %RC%)
+          rem /XF makes robocopy skip these files entirely, so /MIR never purges
+          rem copies that landed in APP_DIR from builds before this exclusion
+          rem existed -- remove them explicitly. No-op once they're gone for good.
+          for %%F in (README.md DEPLOY.md Jenkinsfile docker-compose.test.yml .gitignore) do (
+            if exist "%APP_DIR%\%%F" del /f /q "%APP_DIR%\%%F"
+          )
           if not exist "%APP_DIR%\\server.py" (echo deploy did not land: server.py missing in %APP_DIR% & exit /b 1)
           exit /b 0
         '''
