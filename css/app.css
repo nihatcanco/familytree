@@ -63,6 +63,7 @@ img, video { max-width: 100%; height: auto; }
 /* --- Layout / display --------------------------------------------------- */
 .hidden { display: none !important; }
 .flex { display: flex; }
+.inline-flex { display: inline-flex; }
 .block { display: block; }
 .inline-block { display: inline-block; }
 .flex-col { flex-direction: column; }
@@ -172,6 +173,7 @@ img, video { max-width: 100%; height: auto; }
 .pt-3 { padding-top: 0.75rem; }
 .pb-1 { padding-bottom: 0.25rem; }
 .pb-2 { padding-bottom: 0.5rem; }
+.pb-3 { padding-bottom: 0.75rem; }
 .pl-1 { padding-left: 0.25rem; }
 .pr-1 { padding-right: 0.25rem; }
 
@@ -410,6 +412,12 @@ img, video { max-width: 100%; height: auto; }
     box-shadow: var(--highlight-shadow, 0 0 0 4px rgba(59, 130, 246, 0.35));
 }
 
+/* The same diamond, shrunk down for the read-only root details panel. */
+.root-popup-diamond {
+    border: 2px solid #334155;
+    box-shadow: 0 4px 10px -2px rgb(0 0 0 / 0.25);
+}
+
 /* ============================================================
    Dark mode. Every hardcoded `bg-white` / `text-slate-*` / … in the markup
    and JS-generated cards is remapped here in one place by prefixing the
@@ -475,6 +483,7 @@ html.dark .root-node .root-diamond {
     background: #64748b;
     border-color: #94a3b8;
 }
+html.dark .root-popup-diamond { border-color: #94a3b8; }
 
 /* ============================================================================
    Responsive — phone & tablet.

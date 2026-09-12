@@ -1522,19 +1522,30 @@ import { startTour } from './tour.js';
             const members = rootMemberPersons(details.id);
 
             let html = `
-                <div class="w-10 h-10 rotate-45 rounded bg-slate-600 mx-auto mb-3 mt-1"></div>
-                <div class="font-bold text-slate-900 text-sm mb-1">${escapeHTML(title)}</div>
-                <div class="text-[10px] text-slate-400 font-mono mb-2 border-b border-slate-100 pb-2">Aile kökü · ${escapeHTML(details.generation)}. jenerasyon</div>`;
+                <div class="flex flex-col items-center text-center pb-3 mb-2 border-b border-slate-100">
+                    <div class="w-10 h-10 rotate-45 rounded-lg bg-slate-600 root-popup-diamond mb-3 mt-1"></div>
+                    <div class="font-bold text-slate-900 text-sm leading-snug px-2">${escapeHTML(title)}</div>
+                    <div class="inline-flex items-center gap-1.5 mt-1.5 text-[10px] font-semibold text-slate-500 bg-slate-100 rounded-full px-2.5 py-1">
+                        <span>Aile kökü</span><span>·</span><span>${escapeHTML(details.generation)}. jenerasyon</span>
+                    </div>
+                </div>`;
             if (members.length) {
                 html += `<div class="text-left text-xs text-slate-600 flex flex-col gap-1">
-                    <div class="font-semibold text-slate-700 text-[10px] uppercase">Kişiler</div>`;
+                    <div class="flex items-center justify-between px-0.5 mb-1">
+                        <span class="font-semibold text-slate-400 text-[10px]">KİŞİLER</span>
+                        <span class="font-mono text-slate-300 text-[10px]">${members.length}</span>
+                    </div>`;
                 members.forEach(p => {
-                    const label = `${p.name || ''} ${(p.attributes && p.attributes.surname) || ''}`.trim() || `#${p.id}`;
-                    html += `<div class="bg-slate-50 px-2 py-1 rounded-md">${escapeHTML(label)}</div>`;
+                    const surname = (p.attributes && p.attributes.surname) || '';
+                    const label = `${p.name || ''} ${surname}`.trim() || `#${p.id}`;
+                    html += `<div class="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 transition-colors px-2 py-1.5 rounded-md">
+                        <div class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-[9px] font-bold flex items-center justify-center shrink-0">${escapeHTML(initialsOf(p.name, surname))}</div>
+                        <span class="truncate">${escapeHTML(label)}</span>
+                    </div>`;
                 });
                 html += `</div>`;
             } else {
-                html += `<div class="text-[11px] text-slate-400">Henüz kişi bağlanmadı.</div>`;
+                html += `<div class="text-[11px] text-slate-400 text-center">Henüz kişi bağlanmadı.</div>`;
             }
 
             personDetailsContent.innerHTML = html;
