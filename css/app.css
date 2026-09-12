@@ -129,7 +129,13 @@ img, video { max-width: 100%; height: auto; }
 .h-16 { height: 4rem; }
 .h-fit { height: fit-content; }
 .h-full { height: 100%; }
-.h-screen { height: 100vh; }
+/* 100dvh tracks the *visible* area as mobile browser chrome (address bar /
+   toolbar) shows and hides; plain 100vh is pinned to the chrome-collapsed
+   size, so on a page whose body never scrolls (see #app-tree-area below)
+   that chrome never auto-hides and permanently covers a strip of the
+   viewport — including fixed controls anchored to its bottom/top edge.
+   The 100vh line is a fallback for browsers without dvh support. */
+.h-screen { height: 100vh; height: 100dvh; }
 
 .min-w-0 { min-width: 0; }
 .min-h-0 { min-height: 0; }
@@ -508,12 +514,15 @@ html.dark .root-popup-diamond { border-color: #94a3b8; }
    double-tap-zoom are disabled here so the JS gestures own those. */
 #scroll-container { touch-action: pan-x pan-y; }
 
-/* Drawer / sheet chrome only exists below the breakpoint. */
+/* Drawer / sheet chrome only exists below the breakpoint. `env(safe-area-*)`
+   keeps it clear of the home-indicator / rounded-corner areas on notched
+   phones (needs `viewport-fit=cover` in the viewport meta tag, set in
+   index.html, or the env() values are always 0). */
 #btn-sidebar-toggle {
     display: none;
     position: fixed;
-    right: 1rem;
-    bottom: 1rem;
+    right: calc(1rem + env(safe-area-inset-right));
+    bottom: calc(1rem + env(safe-area-inset-bottom));
     z-index: 140; /* above the drawer so it always toggles */
     width: 3rem;
     height: 3rem;
@@ -541,6 +550,9 @@ html.dark .root-popup-diamond { border-color: #94a3b8; }
            containing block for the fixed sheet — drop it here. */
         backdrop-filter: none;
         -webkit-backdrop-filter: none;
+        /* Keep the scrollable drawer content (and the version stamp at its
+           end) clear of the home-indicator area, on top of the existing p-4. */
+        padding-bottom: calc(1rem + env(safe-area-inset-bottom));
     }
     #app-sidebar.ft-drawer-open { right: 0; }
 
@@ -593,19 +605,28 @@ html.dark .root-popup-diamond { border-color: #94a3b8; }
         background: #cbd5e1;
     }
     #person-details-content { padding-left: 1rem; padding-right: 1rem; }
-    /* Roomier touch targets for the sheet's action row. */
-    #person-details-panel > .flex.overflow-hidden button { padding: 0.85rem 0.5rem; }
+    /* Roomier touch targets for the sheet's action row, kept clear of the
+       home-indicator area since the sheet's own bottom edge is the screen
+       edge (bottom: 0 above). */
+    #person-details-panel > .flex.overflow-hidden button {
+        padding: 0.85rem 0.5rem;
+        padding-bottom: calc(0.85rem + env(safe-area-inset-bottom));
+    }
 
     /* Top toolbar: one tidy row, no wrap; drop the wide username badge
-       (the name still shows in the admin panel and the tour). */
+       (the name still shows in the admin panel and the tour). Offset by the
+       safe area too, for the notch / Dynamic Island in landscape. */
     #top-toolbar {
-        top: 0.5rem;
-        right: 0.5rem;
+        top: calc(0.5rem + env(safe-area-inset-top));
+        right: calc(0.5rem + env(safe-area-inset-right));
         gap: 0.375rem;
     }
     #top-toolbar > button { padding: 0.4rem; }
     #current-user-badge { display: none; }
-    #people-count { top: 0.5rem; left: 0.5rem; }
+    #people-count {
+        top: calc(0.5rem + env(safe-area-inset-top));
+        left: calc(0.5rem + env(safe-area-inset-left));
+    }
 
     /* Login + modals: never wider than the viewport, and scrollable if tall. */
     #login-overlay,
