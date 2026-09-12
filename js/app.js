@@ -379,6 +379,7 @@ import { startTour } from './tour.js';
             remeasureY();
             drawCrossTreeLinks();
             attachResizeObserver();
+            refreshSearchAfterRender();
         }
 
         // --- Cross Tree Linking Logic ---
@@ -2237,6 +2238,15 @@ ${cardsInner}
             if (!isAlreadyHighlighted) {
                 card.classList.add('highlighted');
 
+                // Keep search navigation in sync when the user picks a match
+                // by clicking it directly on the canvas instead of using the
+                // ileri/geri buttons — otherwise the next button press resumes
+                // counting from wherever it was last left (typically back
+                // near match #0, which sits at the top-left of the tree),
+                // making navigation look like it's yanking the view around.
+                const searchIdx = searchResults.indexOf(card);
+                if (searchIdx !== -1) currentSearchIndex = searchIdx;
+
                 const gen = parseInt(card.getAttribute('data-generation')) || 1;
                 const len = generationColors.length;
                 const colorIndex = ((gen - 1) % len + len) % len; // Safe modulo for negative numbers
@@ -2702,7 +2712,16 @@ ${cardsInner}
         });
 
         // --- Search Logic ---
-        function performSearch() {
+        // Scans the live DOM for cards matching the current search box value
+        // and repopulates `searchResults` + the `.search-match` styling.
+        // Pulled out of performSearch so a tree re-render (focus mode, "İki
+        // kişi arası bağ", etc. all replace treeRoot's innerHTML wholesale)
+        // can rebuild the list against the *new* card elements instead of
+        // leaving `searchResults` pointing at detached nodes — a detached
+        // card's getBoundingClientRect() is all zeros, which used to send
+        // scrollCardToCenter's math (and the view) sliding toward the
+        // top-left corner every time ileri/geri was pressed afterwards.
+        function rebuildSearchMatches() {
             const rawQuery = searchInput.value.trim();
             const query = foldTurkish(rawQuery);
             // Split the query into individual keywords; every keyword must be
@@ -2710,7 +2729,7 @@ ${cardsInner}
             // lets "ahmet yilmaz" match a person whose name is "Ahmet" and
             // surname "Yılmaz" regardless of field order.
             const terms = query.split(/\s+/).filter(Boolean);
-            
+
             // Temizle butonunu göster/gizle
             if (query.length > 0) {
                 btnSearchClear.classList.remove('hidden');
@@ -2725,7 +2744,6 @@ ${cardsInner}
                 el.style.removeProperty('--search-color');
             });
             searchResults = [];
-            currentSearchIndex = -1;
 
             if (!query) return;
 
@@ -2753,7 +2771,7 @@ ${cardsInner}
                         if (terms.every(term => text.includes(term))) {
                             searchResults.push(card);
                             card.classList.add('search-match');
-                            
+
                             const gen = parseInt(card.getAttribute('data-generation')) || 1;
                             const len = generationColors.length;
                             const colorIndex = ((gen - 1) % len + len) % len;
@@ -2763,10 +2781,36 @@ ${cardsInner}
                     } catch (e) {}
                 }
             });
+        }
 
-            if (searchResults.length > 0) {
-                currentSearchIndex = 0;
-                focusSearchResult();
+        function performSearch() {
+            rebuildSearchMatches();
+            currentSearchIndex = searchResults.length > 0 ? 0 : -1;
+            if (searchResults.length > 0) focusSearchResult();
+        }
+
+        // Called after every full tree re-render (renderTreeFromHierarchy) so
+        // an in-progress search keeps pointing at real, attached cards. Keeps
+        // the user's place in the result list (by person id) instead of
+        // jumping back to the first match, and — unlike performSearch —
+        // never auto-scrolls/clicks, since the re-render already settled its
+        // own view (e.g. toggleFocusMode's fitTreeToScreen).
+        function refreshSearchAfterRender() {
+            if (!searchInput.value.trim()) return;
+
+            const prevId = (currentSearchIndex >= 0 && searchResults[currentSearchIndex])
+                ? searchResults[currentSearchIndex].getAttribute('data-id')
+                : null;
+
+            rebuildSearchMatches();
+
+            if (searchResults.length === 0) {
+                currentSearchIndex = -1;
+            } else if (prevId !== null) {
+                const sameIndex = searchResults.findIndex(card => card.getAttribute('data-id') === prevId);
+                currentSearchIndex = sameIndex !== -1 ? sameIndex : Math.min(currentSearchIndex, searchResults.length - 1);
+            } else {
+                currentSearchIndex = Math.min(Math.max(currentSearchIndex, 0), searchResults.length - 1);
             }
         }
 
