@@ -11,7 +11,7 @@
 // (PostgreSQL, NSSM service, Apache proxy, job).
 
 pipeline {
-  agent any
+  agent windows
 
   options {
     timestamps()
