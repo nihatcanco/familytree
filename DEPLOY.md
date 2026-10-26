@@ -1,4 +1,4 @@
-# Deploying with Jenkins on Windows Server
+# Deploying with Jenkins + Docker on Windows Server
 
 Target architecture:
 
@@ -6,78 +6,55 @@ Target architecture:
 GitHub (private repo)
       │  clone over SSH (deploy key)
       ▼
-Jenkins service (Windows)
-      │  1. run tests (against a scratch PostgreSQL database)
-      │  2. robocopy code  ──▶  C:\apps\familytree
-      │  3. sync .venv     ──▶  pip install -r requirements.txt
-      │  4. nssm restart   ──▶  "familytree" service = .venv\Scripts\python server.py 8000
+Jenkins (Windows agent, label 'windows')
+      │  1. docker build    ──▶  familytree:test + familytree:latest
+      │  2. run tests       ──▶  familytree:test against a throwaway postgres:18 container
+      │  3. compose up      ──▶  "familytree" project (docker-compose.yml)
       ▼
-server.py  ── listens on 127.0.0.1:8000, talks to PostgreSQL on localhost
+Docker Desktop (Linux containers, WSL2)
+      ├─ app  ── server.py :8000, published on 127.0.0.1:8000 only
+      └─ db   ── postgres:18, data on the named volume familytree_pgdata
       ▲
       │  mod_proxy
 Apache HTTP Server  ── port 80/443, public
 ```
 
-`server.py` binds to `localhost` only, so the outside world reaches the app **only**
-through Apache. `htdocs` is not used — Apache is a pure reverse proxy here.
+The app port is published on `127.0.0.1` only, so the outside world reaches the app
+**only** through Apache. `htdocs` is not used — Apache is a pure reverse proxy here.
 
-The data lives in a local **PostgreSQL** instance (its own Windows service).
-Deploys only ever touch code; the database is never rewritten by a deploy.
+Docker is the only deployment path: there is no Python, venv or Windows service for
+the app on the host. The data lives in the `db` container's `familytree_pgdata`
+volume. Deploys only recreate the `app` container; the database is never rewritten
+by a deploy.
 
 ---
 
 ## 1. One-time server prerequisites
 
-Install on the Windows box and make sure they're on the **Jenkins service account's** `PATH`:
+Install on the Windows box:
 
-- **Git for Windows** — `git --version`
-- **Python 3** — `python --version` (3.9+). Dependencies (`psycopg`) install into a
-  venv from `requirements.txt`; Jenkins does this automatically.
-- **PostgreSQL** — the [EDB Windows installer](https://www.postgresql.org/download/windows/)
-  registers it as a service. Put `psql.exe` (e.g. `C:\Program Files\PostgreSQL\17\bin`)
-  on `PATH`. See §1a below.
-- **[NSSM](https://nssm.cc/download)** — put `nssm.exe` in a folder on `PATH` (e.g. `C:\tools\`)
+- **Git for Windows** — `git --version`, on the Jenkins service account's `PATH`
+- **[Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)**
+  with the WSL2 backend (Linux containers, the default). Then:
+  - Settings → General → **Start Docker Desktop when you sign in** — and, so it runs
+    after a reboot with nobody signed in, either enable auto-login for that account
+    or use Docker Desktop's *"Start Docker Desktop when the machine starts"* option
+    if your edition has it.
+  - Add the **Jenkins service account** to the local `docker-users` group
+    (`net localgroup docker-users <account> /add`), then restart the Jenkins service.
+    Without this every `docker` step fails with a pipe/permission error.
+  - Check from the Jenkins script console or a throwaway job: `docker version`
+    and `docker compose version` both work.
 - **Apache HTTP Server** with `mod_proxy` + `mod_proxy_http`
 
-Pick folders:
+No Python, PostgreSQL install or NSSM is needed on the host.
 
-| Purpose            | Path                     |
-|--------------------|--------------------------|
-| Deployed app       | `C:\apps\familytree`     |
-| App venv           | `C:\apps\familytree\.venv` |
-| SSH keys for clone | `C:\jenkins-keys\`       |
-| Service logs       | `C:\apps\familytree\logs\` |
-
----
-
-## 1a. PostgreSQL setup
-
-After installing PostgreSQL, create the app database and a login role. Do it in
-an **interactive** `psql` session so the console doesn't mangle the password
-(cmd eats `%` and `&`); use an alphanumeric password to keep the connection URL
-simple:
-
-```bat
-"C:\Program Files\PostgreSQL\18\bin\psql" -U postgres
-```
-```sql
-CREATE ROLE familytree      LOGIN PASSWORD 'pick-an-alnum-password';
-CREATE DATABASE familytree      OWNER familytree;
--- scratch DB the Jenkins Test stage resets on every build (must match
--- TEST_DATABASE_URL in the Jenkinsfile):
-CREATE ROLE familytree_test LOGIN PASSWORD 'familytree_test';
-CREATE DATABASE familytree_test OWNER familytree_test;
-\q
-```
-
-The connection string the app uses (keep the password in sync):
-
-```
-postgresql://familytree:pick-an-alnum-password@localhost/familytree
-```
-
-`server.py` applies `schema.sql` on every startup, so the live database starts
-empty and fills up through the UI — there is no data-import step.
+| Purpose            | Where                                  |
+|--------------------|----------------------------------------|
+| App + database     | Compose project `familytree`           |
+| Database files     | Docker volume `familytree_pgdata`      |
+| App logs           | `docker compose -p familytree logs app` |
+| SSH keys for clone | `C:\jenkins-keys\`                     |
 
 ---
 
@@ -97,14 +74,24 @@ ssh-keygen -t ed25519 -f C:\jenkins-keys\familytree_deploy -N ""
 
 ---
 
-## 3. Jenkins credential
+## 3. Jenkins credentials
 
-**Manage Jenkins → Credentials → System → Global credentials → Add Credentials**
+**Manage Jenkins → Credentials → System → Global credentials → Add Credentials**, twice:
 
-- Kind: **SSH Username with private key**
-- ID: `familytree-deploy-key`
-- Username: `git`
-- Private Key: **Enter directly** → paste contents of `C:\jenkins-keys\familytree_deploy` (no `.pub`)
+1. Clone key
+   - Kind: **SSH Username with private key**
+   - ID: `familytree-deploy-key`
+   - Username: `git`
+   - Private Key: **Enter directly** → paste contents of `C:\jenkins-keys\familytree_deploy` (no `.pub`)
+2. Database password
+   - Kind: **Secret text**
+   - ID: `familytree-postgres-password`
+   - Secret: an **alphanumeric** password (it is embedded in the connection URL as-is)
+
+The database password only takes effect when the `familytree_pgdata` volume is first
+created. To change it later, change it inside the database too:
+`docker compose -p familytree exec db psql -U familytree -c "ALTER ROLE familytree PASSWORD 'new'"`,
+then update the credential.
 
 **Manage Jenkins → Security → Git Host Key Verification Configuration** → **Accept first connection**
 (otherwise the first clone fails on an unknown `github.com` host key, because the
@@ -112,47 +99,7 @@ service account has no `known_hosts`).
 
 ---
 
-## 4. The `familytree` Windows service (NSSM)
-
-```bat
-rem Runs from the app venv (created by the Jenkins 'Install dependencies' stage):
-nssm install familytree "C:\apps\familytree\.venv\Scripts\python.exe" "C:\apps\familytree\server.py" 8000
-nssm set familytree AppDirectory        "C:\apps\familytree"
-nssm set familytree AppStdout           "C:\apps\familytree\logs\out.log"
-nssm set familytree AppStderr           "C:\apps\familytree\logs\err.log"
-nssm set familytree AppRotateFiles      1
-nssm set familytree Start               SERVICE_AUTO_START
-rem HTTPS is terminated at Apache (Secure cookie); point the app at PostgreSQL:
-nssm set familytree AppEnvironmentExtra FAMILYTREE_SECURE_COOKIES=1 FAMILYTREE_DATABASE_URL=postgresql://familytree:CHANGE-ME@localhost/familytree
-```
-
-Don't start it yet — it needs `C:\apps\familytree\` to exist with `server.py` and
-its `.venv`. The first Jenkins build creates both. `server.py` applies `schema.sql`
-on startup, so it comes up against an empty database with no import step.
-
-### First-run admin account
-
-On the very first start with an empty `Users` table, `server.py` prints a generated
-admin password **once** to `logs\out.log`. To choose it yourself instead, set before
-the first start:
-
-```bat
-nssm set familytree AppEnvironmentExtra FAMILYTREE_SECURE_COOKIES=1 FAMILYTREE_DATABASE_URL=postgresql://familytree:CHANGE-ME@localhost/familytree FAMILYTREE_ADMIN_USERNAME=admin FAMILYTREE_ADMIN_PASSWORD=your-strong-password
-```
-
-Remove `FAMILYTREE_ADMIN_PASSWORD` from the service env after the account exists
-(keep `FAMILYTREE_DATABASE_URL`).
-
-### Let Jenkins restart it
-
-The Jenkins service account must be able to run `nssm restart familytree`. Easiest:
-run the Jenkins service as `LocalSystem` (the default) or as a local Administrator.
-Otherwise grant that account the "restart" right on the service with `sc sdset` or
-a tool like `subinacl`.
-
----
-
-## 5. Apache reverse proxy
+## 4. Apache reverse proxy
 
 In `httpd.conf` uncomment:
 
@@ -178,12 +125,14 @@ Add a vhost (adjust `ServerName`; add TLS with `mod_ssl` / a real cert for produ
 
 `httpd -t` then restart Apache.
 
-> If you serve this over HTTPS, keep `FAMILYTREE_SECURE_COOKIES=1` on the service.
-> If you ever run it plain HTTP on a LAN, drop that env var or logins won't stick.
+> `docker-compose.yml` defaults `FAMILYTREE_SECURE_COOKIES` to `1` because HTTPS is
+> terminated at Apache. If you ever run it plain HTTP on a LAN, set the
+> `FAMILYTREE_SECURE_COOKIES=0` environment variable for the job/agent or logins
+> won't stick.
 
 ---
 
-## 6. The Jenkins pipeline job
+## 5. The Jenkins pipeline job
 
 **New Item → Pipeline**, name `familytree-deploy`.
 
@@ -196,14 +145,56 @@ Add a vhost (adjust `ServerName`; add TLS with `mod_ssl` / a real cert for produ
   - Script Path: `Jenkinsfile`
 - Save. The `Jenkinsfile` in the repo declares its own trigger (`pollSCM` every ~3 min).
 
-**Build Now** once to do the initial deploy, then start the service:
+**Build Now** once to do the initial deploy. The first build creates the `db`
+container and its volume, then the `app` container; both restart on their own after
+a reboot (`restart: unless-stopped`) once Docker Desktop is up.
+
+### First-run admin account
+
+On the very first start with an empty `Users` table, `server.py` prints a generated
+admin password **once** to the app log:
 
 ```bat
-nssm start familytree
+docker compose -p familytree logs app
 ```
 
-Check `logs\out.log` for the admin password (if you didn't set one), then browse to
-your Apache vhost.
+To choose it yourself instead, add a `FAMILYTREE_ADMIN_PASSWORD` environment variable
+to the Jenkins job (or the agent) for the first build only, and remove it once the
+account exists. Skip this if you are migrating existing data (§6) — the accounts
+come with it.
+
+---
+
+## 6. One-time migration from the old NSSM + host PostgreSQL setup
+
+Only needed on a box that ran the pre-Docker deploy. While the old `familytree`
+Windows service exists, the pipeline's **Retire old service** stage fails the build
+until the `familytree_pgdata` volume exists (step 3 creates it), so the app can't come
+up on an empty database by accident. Once it does, that stage stops and deletes the
+old service itself.
+
+```bat
+rem 1. stop the old app service so nothing writes to the host db during the dump
+nssm stop familytree
+
+rem 2. dump the live data from the host PostgreSQL
+"C:\Program Files\PostgreSQL\18\bin\pg_dump" -U familytree -Fc familytree > C:\backups\familytree-premigration.dump
+
+rem 3. from a checkout of this repo: start only the db container and restore into it
+set POSTGRES_PASSWORD=<same value as the familytree-postgres-password credential>
+docker compose -p familytree up -d --wait db
+docker compose -p familytree exec -T db pg_restore -U familytree -d familytree --no-owner < C:\backups\familytree-premigration.dump
+```
+
+Then **Build Now** in Jenkins (it removes the old service and deploys) and check the
+site through Apache. Once it's confirmed working, delete the old app folder:
+
+```bat
+rmdir /s /q C:\apps\familytree
+```
+
+and, if nothing else uses it, stop/uninstall the host PostgreSQL service (keep the
+dump from step 2). Python and NSSM can be uninstalled too.
 
 ---
 
@@ -223,11 +214,15 @@ If the Jenkins box is reachable from GitHub:
 
 ## Notes
 
-- **Backups**: a scheduled `pg_dump`, e.g. a daily Task Scheduler job:
-  `"C:\Program Files\PostgreSQL\18\bin\pg_dump" -U familytree -Fc familytree > C:\backups\familytree-%DATE%.dump`
-  Restore with `pg_restore -U familytree -d familytree --clean <file>`.
-- To roll back: `git revert` on `main`, let the next poll deploy it. The database
-  is unaffected by code rollbacks (`schema.sql` is additive — `CREATE TABLE IF NOT
-  EXISTS` only).
-- To see what a deploy would change without touching anything, add `/L` to the
-  `robocopy` line temporarily.
+- **Status / logs**: `docker compose -p familytree ps` and
+  `docker compose -p familytree logs -f app` (or `db`).
+- **Backups**: a scheduled `pg_dump` from inside the db container, e.g. a daily Task
+  Scheduler job:
+  `docker exec familytree-db-1 pg_dump -U familytree -Fc familytree > C:\backups\familytree-%DATE%.dump`
+  Restore with
+  `docker exec -i familytree-db-1 pg_restore -U familytree -d familytree --clean < <file>`.
+- **Never** run `docker compose -p familytree down -v` on the server: `-v` deletes the
+  `familytree_pgdata` volume, i.e. the database. Plain `down` is safe.
+- To roll back: `git revert` on `main`, let the next poll deploy it (or re-run an
+  older build in Jenkins). The database is unaffected by code rollbacks
+  (`schema.sql` is additive — `CREATE TABLE IF NOT EXISTS` only).

@@ -1,0 +1,51 @@
+# Production stack: the app + its PostgreSQL, run by Jenkins on the Windows
+# box (Docker Desktop). Apache keeps proxying to 127.0.0.1:8000.
+#
+# Needs POSTGRES_PASSWORD in the environment (Jenkins injects it from the
+# 'familytree-postgres-password' credential). Keep it alphanumeric: it is
+# embedded in the connection URL as-is. It only takes effect when the pgdata
+# volume is first created; changing it later means ALTER ROLE inside the db.
+#
+# Manual use (from the repo dir):
+#   set POSTGRES_PASSWORD=...
+#   docker compose -p familytree up -d
+name: familytree
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: familytree
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: familytree
+    volumes:
+      # postgres:18 keeps its data under /var/lib/postgresql/18/docker
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      # -h 127.0.0.1: the image's init-time temporary server only listens on
+      # the unix socket, so this doesn't report ready before the real start.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U familytree -d familytree"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    image: familytree:latest
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      FAMILYTREE_DATABASE_URL: postgresql://familytree:${POSTGRES_PASSWORD}@db/familytree
+      # HTTPS is terminated at Apache; set to 0 for plain-HTTP LAN use.
+      FAMILYTREE_SECURE_COOKIES: ${FAMILYTREE_SECURE_COOKIES:-1}
+      # Only read when no account exists yet (first start on an empty db).
+      FAMILYTREE_ADMIN_USERNAME: ${FAMILYTREE_ADMIN_USERNAME:-admin}
+      FAMILYTREE_ADMIN_PASSWORD: ${FAMILYTREE_ADMIN_PASSWORD:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  pgdata:

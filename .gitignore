@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 
-# Virtualenvs (dev: .venv, deploy: APP_DIR\.venv, legacy: .venv-test)
+# Virtualenvs (dev: .venv, legacy: .venv-test); deploys run in Docker
 .venv/
 .venv-test/
 

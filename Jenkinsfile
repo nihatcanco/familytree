@@ -1,14 +1,15 @@
-// CI/CD for the family-tree app on a Windows Jenkins service.
+// CI/CD for the family-tree app on a Windows Jenkins agent running Docker
+// Desktop (Linux containers).
 //
 //   GitHub (private)  --clone via SSH deploy key-->  Jenkins
-//   Jenkins           --run tests, mirror code-->    C:\apps\familytree
-//   Jenkins           --nssm restart-->              "familytree" Windows service (server.py :8000)
+//   Jenkins           --docker build, test in a throwaway Postgres container-->
+//   Jenkins           --docker compose up-->         "familytree" project:
+//                                                      app (server.py :8000) + db (postgres:18)
 //   Apache            --mod_proxy-->                  127.0.0.1:8000
 //
-// The live database is PostgreSQL (a separate Windows service); deploys only
-// ever touch code. server.py runs from a venv in APP_DIR (psycopg) and creates
-// its schema on startup. See DEPLOY.md for the one-time server setup
-// (PostgreSQL, NSSM service, Apache proxy, job).
+// The live database is the db service in docker-compose.yml, on the named
+// volume familytree_pgdata; deploys only replace the app container. server.py
+// creates its schema on startup. See DEPLOY.md for Apache and the job itself.
 
 pipeline {
   agent { label 'windows' }
@@ -26,16 +27,14 @@ pipeline {
   }
 
   environment {
-    APP_DIR = 'C:\\apps\\familytree'
-    SERVICE = 'familytree'
-    // Full paths — the Jenkins service account's PATH usually has neither.
-    // PYTHON: all-users python.org install. NSSM: wherever nssm.exe was dropped.
-    PYTHON  = 'C:/Program Files/Python312/python.exe'
-    NSSM    = 'C:\\tools\\nssm.exe'
-    // The deployed app and the test suite each get their own venv.
-    APP_PY  = 'C:\\apps\\familytree\\.venv\\Scripts\\python.exe'
-    // Scratch DB on the local PostgreSQL for the Test stage (see DEPLOY.md).
-    TEST_DATABASE_URL = 'postgresql://familytree_test:familytree_test@localhost/familytree_test'
+    // Compose project name: fixes container/volume names (familytree_pgdata)
+    // no matter which workspace directory the build runs in.
+    COMPOSE_PROJECT_NAME = 'familytree'
+    // Secret text credential; docker-compose.yml refuses to start without it.
+    POSTGRES_PASSWORD = credentials('familytree-postgres-password')
+    // Per-build names for the Test stage's throwaway database.
+    TEST_NET = "familytree-test-${env.BUILD_NUMBER}"
+    TEST_PG  = "familytree-test-pg-${env.BUILD_NUMBER}"
   }
 
   stages {
@@ -47,8 +46,8 @@ pipeline {
 
     stage('Stamp version') {
       // Rewrite version.json so the app footer can show the Jenkins build
-      // number. Robocopy in 'Deploy code' copies it to APP_DIR as-is; the
-      // repo's committed version.json (build "dev") is only for local runs.
+      // number. 'Build image' copies it into the image as-is; the repo's
+      // committed version.json (build "dev") is only for local runs.
       //
       // Also cache-bust every asset the browser fetches by URL, by appending
       // "?v=<build>": the two entries index.html loads directly (css/app.css,
@@ -89,72 +88,107 @@ pipeline {
       }
     }
 
-    stage('Test') {
+    stage('Build image') {
       steps {
-        // API integration test. Builds a workspace venv, then resets and seeds
-        // the scratch PostgreSQL database (TEST_DATABASE_URL) and exercises
-        // every endpoint against a real server.
         bat '''
-          "%PYTHON%" -m venv .venv || exit /b 1
-          ".venv\\Scripts\\python.exe" -m pip install -q -r requirements.txt || exit /b 1
-          ".venv\\Scripts\\python.exe" tests\\test_api.py || exit /b 1
+          docker build --pull --target test -t familytree:test . || exit /b 1
+          docker build --target app -t familytree:latest . || exit /b 1
         '''
       }
     }
 
-    stage('Deploy code') {
+    stage('Test') {
+      // API integration test, run inside the test image against a throwaway
+      // postgres:18 container (tmpfs, own network) that only lives for this
+      // stage. pg_fixture resets and seeds it; the live db is never touched.
+      steps {
+        powershell '''
+          docker network create $env:TEST_NET
+          if ($LASTEXITCODE) { exit 1 }
+          docker run -d --name $env:TEST_PG --network $env:TEST_NET --tmpfs /var/lib/postgresql `
+            -e POSTGRES_USER=familytree -e POSTGRES_PASSWORD=familytree -e POSTGRES_DB=familytree_test `
+            postgres:18
+          if ($LASTEXITCODE) { exit 1 }
+
+          # -h 127.0.0.1 so the image's unix-socket-only init server doesn't count as ready.
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            docker exec $env:TEST_PG pg_isready -q -h 127.0.0.1 -U familytree -d familytree_test
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep 2
+          }
+          if (-not $ready) { docker logs --tail 30 $env:TEST_PG; exit 1 }
+
+          docker run --rm --network $env:TEST_NET `
+            -e "TEST_DATABASE_URL=postgresql://familytree:familytree@$($env:TEST_PG):5432/familytree_test" `
+            familytree:test
+          if ($LASTEXITCODE) { exit 1 }
+        '''
+      }
+      post {
+        always {
+          bat '''
+            docker rm -f %TEST_PG% >nul 2>&1
+            docker network rm %TEST_NET% >nul 2>&1
+            exit /b 0
+          '''
+        }
+      }
+    }
+
+    stage('Retire old service') {
+      // The pre-Docker deploy ran server.py as the NSSM Windows service
+      // "familytree" on :8000. Stop and delete it, but only once its data has
+      // been restored into the db container (DEPLOY.md section 6, which creates
+      // the familytree_pgdata volume) -- until then refuse to deploy, so the app
+      // never comes up on an empty database while the real data is still in the
+      // host PostgreSQL. No-op once the service is gone.
+      steps {
+        powershell '''
+          $svc = Get-Service -Name 'familytree' -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Host 'old familytree service: not present'; exit 0 }
+
+          docker volume inspect familytree_pgdata *> $null
+          if ($LASTEXITCODE) {
+            Write-Host "old 'familytree' Windows service still exists but the familytree_pgdata volume doesn't:"
+            Write-Host "migrate its data into the db container first (DEPLOY.md section 6), then re-run."
+            exit 1
+          }
+
+          if ($svc.Status -ne 'Stopped') { Stop-Service -Name 'familytree' -Force -ErrorAction Stop }
+          sc.exe delete familytree
+          if ($LASTEXITCODE) { exit 1 }
+          Write-Host 'old familytree service: stopped and removed'
+        '''
+      }
+    }
+
+    stage('Deploy') {
+      // Starts db if it isn't running (first deploy creates the pgdata volume)
+      // and recreates app on the freshly built familytree:latest. --wait blocks
+      // until both report healthy, or fails the stage.
       steps {
         bat '''
-          if not exist "%APP_DIR%" mkdir "%APP_DIR%"
-          robocopy "%WORKSPACE%" "%APP_DIR%" /MIR /NFL /NDL /NP /R:2 /W:5 ^
-            /XD .git .github tests __pycache__ .venv-test .venv .claude logs ^
-            /XF README.md DEPLOY.md Jenkinsfile docker-compose.test.yml .gitignore
-          set RC=%ERRORLEVEL%
-          rem robocopy: 0-7 = success, 8+ = real error
-          if %RC% GEQ 8 (echo robocopy failed with exit code %RC% & exit /b %RC%)
-          rem /XF makes robocopy skip these files entirely, so /MIR never purges
-          rem copies that landed in APP_DIR from builds before this exclusion
-          rem existed -- remove them explicitly. No-op once they're gone for good.
-          for %%F in (README.md DEPLOY.md Jenkinsfile docker-compose.test.yml .gitignore) do (
-            if exist "%APP_DIR%\\%%F" del /f /q "%APP_DIR%\\%%F"
-          )
-          if not exist "%APP_DIR%\\server.py" (echo deploy did not land: server.py missing in %APP_DIR% & exit /b 1)
+          docker compose up -d --no-build --wait --wait-timeout 120
+          if errorlevel 1 (docker compose logs --tail 30 app & exit /b 1)
+          rem drop the previous build's image, now untagged
+          docker image prune -f >nul
           exit /b 0
         '''
       }
     }
 
-    stage('Install dependencies') {
-      // server.py needs psycopg; keep the APP_DIR venv in sync with
-      // requirements.txt on every deploy (fast no-op when unchanged).
-      steps {
-        bat '''
-          if not exist "%APP_PY%" "%PYTHON%" -m venv "%APP_DIR%\\.venv" || exit /b 1
-          "%APP_PY%" -m pip install -q -r "%APP_DIR%\\requirements.txt" || exit /b 1
-        '''
-      }
-    }
-
-    stage('Restart service') {
-      steps {
-        bat '''
-          "%NSSM%" restart %SERVICE%
-          rem give the process a moment, then confirm it is actually RUNNING
-          powershell -NoProfile -Command "Start-Sleep 3; $s=(Get-Service '%SERVICE%').Status; Write-Host \\"service status: $s\\"; if ($s -ne 'Running') { Get-Content 'C:\\apps\\familytree\\logs\\err.log' -Tail 30 -ErrorAction SilentlyContinue; exit 1 }"
-        '''
-      }
-    }
-
     stage('Smoke check') {
+      // Through the host port Apache proxies to, not just the container healthcheck.
       steps {
-        bat 'powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 10;$i++){ try { if((Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:8000/).StatusCode -eq 200){$ok=$true;break} } catch {} ; Start-Sleep 2 }; if(-not $ok){ Get-Content \'C:\\apps\\familytree\\logs\\err.log\' -Tail 30 -ErrorAction SilentlyContinue; exit 1 }"'
+        bat 'powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 10;$i++){ try { if((Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:8000/).StatusCode -eq 200){$ok=$true;break} } catch {} ; Start-Sleep 2 }; if(-not $ok){ docker compose logs --tail 30 app; exit 1 }"'
       }
     }
   }
 
   post {
     failure {
-      echo 'Deploy failed. Service left running on the previous code; check the stage log above.'
+      echo 'Pipeline failed. If it failed before Deploy, the previous app container is still running; otherwise check `docker compose ps` / the stage log above.'
     }
   }
 }

@@ -19,6 +19,14 @@ This serves the app *and* a small `/api` backed by PostgreSQL, so editing a pers
 
 Pass a different port if 8000 is taken: `python3 server.py 8080`.
 
+The venv setup above is for development only. Production runs in Docker:
+`docker-compose.yml` (app + PostgreSQL), deployed by the `Jenkinsfile` — see
+[DEPLOY.md](DEPLOY.md). To run that same stack locally:
+
+```bash
+POSTGRES_PASSWORD=devpass docker compose up -d --build   # then open http://localhost:8000
+```
+
 ## Features
 
 - **Pan / zoom canvas** — drag to pan, Ctrl/⌘ + wheel or trackpad pinch to zoom, two-finger pinch and double-tap on touch devices.
