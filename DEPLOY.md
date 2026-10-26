@@ -90,10 +90,10 @@ ssh-keygen -t ed25519 -f C:\jenkins-keys\familytree_deploy -N ""
    - ID: `familytree-postgres-password`
    - Secret: an **alphanumeric** password (it is embedded in the connection URL as-is)
 
-The database password only takes effect when the `familytree_pgdata` volume is first
-created. To change it later, change it inside the database too:
-`docker compose -p familytree exec db psql -U familytree -c "ALTER ROLE familytree PASSWORD 'new'"`,
-then update the credential.
+Postgres only applies the password when the `familytree_pgdata` volume is first
+created, so every deploy re-applies the credential to the `familytree` role
+(`sync-db-password.sql`). To change the password, just update the credential and run
+a build.
 
 **Manage Jenkins → Security → Git Host Key Verification Configuration** → **Accept first connection**
 (otherwise the first clone fails on an unknown `github.com` host key, because the

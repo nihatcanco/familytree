@@ -196,7 +196,13 @@ pipeline {
           Write-Host "pick a free port for APP_PORT in the Jenkinsfile (and the default in docker-compose.yml)."
           exit 1
         '''
+        // db first, then align its role password with the credential (it
+        // only takes effect on a fresh volume otherwise), then the app.
         bat '''
+          docker compose up -d --no-build --wait --wait-timeout 120 db
+          if errorlevel 1 (docker compose logs --tail 30 db & exit /b 1)
+          docker compose exec -T db psql -q -v ON_ERROR_STOP=1 -U familytree -d familytree < sync-db-password.sql
+          if errorlevel 1 (echo could not sync the familytree role password & exit /b 1)
           docker compose up -d --no-build --wait --wait-timeout 120
           if errorlevel 1 (docker compose logs --tail 30 app & exit /b 1)
           rem drop the previous build's image, now untagged

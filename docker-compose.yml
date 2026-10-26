@@ -4,8 +4,9 @@
 #
 # Needs POSTGRES_PASSWORD in the environment (Jenkins injects it from the
 # 'familytree-postgres-password' credential). Keep it alphanumeric: it is
-# embedded in the connection URL as-is. It only takes effect when the pgdata
-# volume is first created; changing it later means ALTER ROLE inside the db.
+# embedded in the connection URL as-is. Postgres itself only applies it when
+# the pgdata volume is first created; the Jenkins Deploy stage re-applies it
+# to the role on every deploy (sync-db-password.sql).
 #
 # Manual use (from the repo dir):
 #   set POSTGRES_PASSWORD=...
