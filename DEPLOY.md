@@ -123,14 +123,6 @@ Allow inbound traffic to it through Windows Firewall:
 New-NetFirewallRule -DisplayName "familytree HTTP" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
 ```
 
-Apache is no longer used. If it was only there for this app, stop and disable it
-(`Apache2.4` is the default service name — check with `Get-Service *apache*`):
-
-```powershell
-Stop-Service Apache2.4
-Set-Service  Apache2.4 -StartupType Disabled
-```
-
 > `docker-compose.yml` defaults `FAMILYTREE_SECURE_COOKIES` to `0` because the site
 > is plain HTTP — a `Secure` cookie would never be sent back and logins wouldn't
 > stick. Set it to `1` only once HTTPS is in front of the app.
@@ -165,54 +157,11 @@ docker compose -p familytree logs app
 
 To choose it yourself instead, add a `FAMILYTREE_ADMIN_PASSWORD` environment variable
 to the Jenkins job (or the agent) for the first build only, and remove it once the
-account exists. Skip this if you are migrating existing data (§6) — the accounts
-come with it.
+account exists.
 
 ---
 
-## 6. One-time migration from the old NSSM + host PostgreSQL setup
-
-Only needed on a box that ran the pre-Docker deploy. While the old `familytree`
-Windows service exists, the pipeline's **Retire old service** stage fails the build
-until the `familytree_pgdata` volume exists (step 3 creates it), so the app can't come
-up on an empty database by accident. Once it does, that stage stops and deletes the
-old service itself — if the Jenkins agent account has admin rights. It usually
-doesn't (`Access is denied`); then delete it once by hand from an **Administrator**
-PowerShell and re-run the build. The build log prints the exact commands; the
-service's real name may differ from its display name `familytree`:
-
-```powershell
-Get-Service | Where-Object { $_.Name -like '*family*' -or $_.DisplayName -like '*family*' } | Format-Table Name, DisplayName, Status
-Stop-Service -Name '<Name>' -Force
-sc.exe delete '<Name>'
-```
-
-```bat
-rem 1. stop the old app service so nothing writes to the host db during the dump
-nssm stop familytree
-
-rem 2. dump the live data from the host PostgreSQL
-"C:\Program Files\PostgreSQL\18\bin\pg_dump" -U familytree -Fc familytree > C:\backups\familytree-premigration.dump
-
-rem 3. from a checkout of this repo: start only the db container and restore into it
-set POSTGRES_PASSWORD=<same value as the familytree-postgres-password credential>
-docker compose -p familytree up -d --wait db
-docker compose -p familytree exec -T db pg_restore -U familytree -d familytree --no-owner < C:\backups\familytree-premigration.dump
-```
-
-Then **Build Now** in Jenkins (it removes the old service and deploys) and check the
-site at `http://<server>:8000/`. Once it's confirmed working, delete the old app folder:
-
-```bat
-rmdir /s /q C:\apps\familytree
-```
-
-and, if nothing else uses it, stop/uninstall the host PostgreSQL service (keep the
-dump from step 2). Python and NSSM can be uninstalled too.
-
----
-
-## 7. Optional: webhook instead of polling
+## 6. Optional: webhook instead of polling
 
 If the Jenkins box is reachable from GitHub:
 

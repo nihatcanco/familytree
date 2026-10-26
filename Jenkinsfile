@@ -137,43 +137,6 @@ pipeline {
       }
     }
 
-    stage('Retire old service') {
-      // The pre-Docker deploy ran server.py as the NSSM Windows service
-      // "familytree" on :8000. Stop and delete it, but only once its data has
-      // been restored into the db container (DEPLOY.md section 6, which creates
-      // the familytree_pgdata volume) -- until then refuse to deploy, so the app
-      // never comes up on an empty database while the real data is still in the
-      // host PostgreSQL. No-op once the service is gone.
-      steps {
-        powershell '''
-          $svc = Get-Service -Name 'familytree' -ErrorAction SilentlyContinue
-          if (-not $svc) { Write-Host 'old familytree service: not present'; exit 0 }
-
-          docker volume inspect familytree_pgdata *> $null
-          if ($LASTEXITCODE) {
-            Write-Host "old 'familytree' Windows service still exists but the familytree_pgdata volume doesn't:"
-            Write-Host "migrate its data into the db container first (DEPLOY.md section 6), then re-run."
-            exit 1
-          }
-
-          # Stopping/deleting a service needs admin rights, which the agent
-          # account usually lacks; then say exactly what to run by hand (once).
-          # Get-Service -Name also matches display names, so act on the
-          # service's real name, which sc.exe needs.
-          $name = $svc.Name
-          $manual = "run once in an Administrator PowerShell on this box, then re-run the build:`n" +
-                    "  Stop-Service -Name '$name' -Force; sc.exe delete '$name'"
-          if ($svc.Status -ne 'Stopped') {
-            try { Stop-Service -Name $name -Force -ErrorAction Stop }
-            catch { Write-Host "could not stop the old service '$name': $($_.Exception.Message)"; Write-Host $manual; exit 1 }
-          }
-          sc.exe delete $name
-          if ($LASTEXITCODE) { Write-Host "could not delete the old service '$name'."; Write-Host $manual; exit 1 }
-          Write-Host "old service '$name' (display name '$($svc.DisplayName)'): stopped and removed"
-        '''
-      }
-    }
-
     stage('Deploy') {
       // Starts db if it isn't running (first deploy creates the pgdata volume)
       // and recreates app on the freshly built familytree:latest. --wait blocks
