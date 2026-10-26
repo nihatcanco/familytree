@@ -26,9 +26,8 @@ CMD ["python", "tests/test_api.py"]
 FROM base AS app
 RUN useradd --system --no-create-home familytree
 USER familytree
-# Inside the container the app must listen on all interfaces; the host side
-# is still bound to 127.0.0.1 only (docker-compose.yml), so Apache stays the
-# only way in.
+# Inside the container the app must listen on all interfaces so Docker can
+# forward the published host port (docker-compose.yml) to it.
 ENV FAMILYTREE_HOST=0.0.0.0
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \

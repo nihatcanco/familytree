@@ -5,11 +5,11 @@
 //   Jenkins           --docker build, test in a throwaway Postgres container-->
 //   Jenkins           --docker compose up-->         "familytree" project:
 //                                                      app (server.py :8000) + db (postgres:18)
-//   Apache            --mod_proxy-->                  127.0.0.1:8000
+//   Browsers          --plain HTTP-->                 host port 8000 -> app container :8000
 //
 // The live database is the db service in docker-compose.yml, on the named
 // volume familytree_pgdata; deploys only replace the app container. server.py
-// creates its schema on startup. See DEPLOY.md for Apache and the job itself.
+// creates its schema on startup. See DEPLOY.md for the server and job setup.
 
 pipeline {
   agent { label 'windows' }
@@ -30,6 +30,8 @@ pipeline {
     // Compose project name: fixes container/volume names (familytree_pgdata)
     // no matter which workspace directory the build runs in.
     COMPOSE_PROJECT_NAME = 'familytree'
+    // Public host port the site is served on (docker-compose.yml maps it to 8000).
+    APP_PORT = '8000'
     // Secret text credential; docker-compose.yml refuses to start without it.
     POSTGRES_PASSWORD = credentials('familytree-postgres-password')
     // Per-build names for the Test stage's throwaway database.
@@ -58,10 +60,9 @@ pipeline {
       // file was loaded, so all of them need the same treatment or a deploy
       // can end up running a fresh app.js against a stale helper module.
       // server.py already sends Cache-Control: no-cache on every static file,
-      // but the app sits behind Apache's mod_proxy and, per DEPLOY.md, is
-      // reached through a tunnel/reverse-proxy setup that isn't guaranteed to
-      // honor that header -- a changed URL forces a fresh fetch regardless of
-      // what any in-between cache does with the headers.
+      // but browsers (and any proxy between them and the server) aren't
+      // guaranteed to honor that header -- a changed URL forces a fresh fetch
+      // regardless of what any in-between cache does with the headers.
       steps {
         powershell '''
           $build = $env:BUILD_NUMBER
@@ -155,10 +156,20 @@ pipeline {
             exit 1
           }
 
-          if ($svc.Status -ne 'Stopped') { Stop-Service -Name 'familytree' -Force -ErrorAction Stop }
-          sc.exe delete familytree
-          if ($LASTEXITCODE) { exit 1 }
-          Write-Host 'old familytree service: stopped and removed'
+          # Stopping/deleting a service needs admin rights, which the agent
+          # account usually lacks; then say exactly what to run by hand (once).
+          # Get-Service -Name also matches display names, so act on the
+          # service's real name, which sc.exe needs.
+          $name = $svc.Name
+          $manual = "run once in an Administrator PowerShell on this box, then re-run the build:`n" +
+                    "  Stop-Service -Name '$name' -Force; sc.exe delete '$name'"
+          if ($svc.Status -ne 'Stopped') {
+            try { Stop-Service -Name $name -Force -ErrorAction Stop }
+            catch { Write-Host "could not stop the old service '$name': $($_.Exception.Message)"; Write-Host $manual; exit 1 }
+          }
+          sc.exe delete $name
+          if ($LASTEXITCODE) { Write-Host "could not delete the old service '$name'."; Write-Host $manual; exit 1 }
+          Write-Host "old service '$name' (display name '$($svc.DisplayName)'): stopped and removed"
         '''
       }
     }
@@ -168,6 +179,23 @@ pipeline {
       // and recreates app on the freshly built familytree:latest. --wait blocks
       // until both report healthy, or fails the stage.
       steps {
+        // Other apps share this box: refuse to deploy if anything but our own
+        // app container is already listening on APP_PORT, and name the culprit.
+        powershell '''
+          $port = [int]$env:APP_PORT
+          $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+          if (-not $listeners) { Write-Host "port $port is free"; exit 0 }
+
+          $ours = docker port familytree-app-1 8000 2>$null
+          if ($ours -match ":$port$") { Write-Host "port $port is held by our own app container"; exit 0 }
+
+          Write-Host "port $port is already in use by another program:"
+          $listeners | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object {
+            Get-Process -Id $_ -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, Path -AutoSize | Out-String | Write-Host
+          }
+          Write-Host "pick a free port for APP_PORT in the Jenkinsfile (and the default in docker-compose.yml)."
+          exit 1
+        '''
         bat '''
           docker compose up -d --no-build --wait --wait-timeout 120
           if errorlevel 1 (docker compose logs --tail 30 app & exit /b 1)
@@ -179,9 +207,9 @@ pipeline {
     }
 
     stage('Smoke check') {
-      // Through the host port Apache proxies to, not just the container healthcheck.
+      // Through the public host port (APP_PORT), not just the container healthcheck.
       steps {
-        bat 'powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 10;$i++){ try { if((Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:8000/).StatusCode -eq 200){$ok=$true;break} } catch {} ; Start-Sleep 2 }; if(-not $ok){ docker compose logs --tail 30 app; exit 1 }"'
+        bat 'powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 10;$i++){ try { if((Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:%APP_PORT%/).StatusCode -eq 200){$ok=$true;break} } catch {} ; Start-Sleep 2 }; if(-not $ok){ docker compose logs --tail 30 app; exit 1 }"'
       }
     }
   }

@@ -12,15 +12,19 @@ Jenkins (Windows agent, label 'windows')
       │  3. compose up      ──▶  "familytree" project (docker-compose.yml)
       ▼
 Docker Desktop (Linux containers, WSL2)
-      ├─ app  ── server.py :8000, published on 127.0.0.1:8000 only
+      ├─ app  ── server.py :8000 in the container, published on host port 8000
       └─ db   ── postgres:18, data on the named volume familytree_pgdata
       ▲
-      │  mod_proxy
-Apache HTTP Server  ── port 80/443, public
+      │  plain HTTP
+Browsers  ── http://<server>:8000/
 ```
 
-The app port is published on `127.0.0.1` only, so the outside world reaches the app
-**only** through Apache. `htdocs` is not used — Apache is a pure reverse proxy here.
+There is no reverse proxy: the app container serves the site itself on port **8000**
+(`APP_PORT` in the `Jenkinsfile`; `docker-compose.yml` uses the same default).
+It is **plain HTTP**, so nothing is encrypted — logins and passwords cross the
+network in clear text. That's fine on a LAN; for internet exposure, put an HTTPS
+proxy (e.g. a Caddy container) in front of it and set `FAMILYTREE_SECURE_COOKIES=1`.
+The database has no published port; only the app container can reach it.
 
 Docker is the only deployment path: there is no Python, venv or Windows service for
 the app on the host. The data lives in the `db` container's `familytree_pgdata`
@@ -45,9 +49,7 @@ Install on the Windows box:
     Without this every `docker` step fails with a pipe/permission error.
   - Check from the Jenkins script console or a throwaway job: `docker version`
     and `docker compose version` both work.
-- **Apache HTTP Server** with `mod_proxy` + `mod_proxy_http`
-
-No Python, PostgreSQL install or NSSM is needed on the host.
+No Python, PostgreSQL install, NSSM or web server (Apache/IIS) is needed on the host.
 
 | Purpose            | Where                                  |
 |--------------------|----------------------------------------|
@@ -99,36 +101,39 @@ service account has no `known_hosts`).
 
 ---
 
-## 4. Apache reverse proxy
+## 4. Port and firewall
 
-In `httpd.conf` uncomment:
+The app container publishes **port 8000** on every interface; that is the only host
+port this stack uses (the database has no published port, and the test containers
+run on their own network). Other apps on the box must not use it — the Deploy stage
+fails with the offending process name if something else is listening there. Check
+up front:
 
-```apache
-LoadModule proxy_module modules/mod_proxy.so
-LoadModule proxy_http_module modules/mod_proxy_http.so
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue   # no output = free
+netsh int ipv4 show excludedportrange protocol=tcp   # 8000 must not fall in a reserved range
 ```
 
-Add a vhost (adjust `ServerName`; add TLS with `mod_ssl` / a real cert for production):
+If it does, pick another port and change `APP_PORT` in the `Jenkinsfile` (and the
+default in `docker-compose.yml` to match).
 
-```apache
-<VirtualHost *:80>
-    ServerName familytree.example.com
+Allow inbound traffic to it through Windows Firewall:
 
-    ProxyPreserveHost On
-    ProxyPass        / http://127.0.0.1:8000/
-    ProxyPassReverse / http://127.0.0.1:8000/
-
-    ErrorLog  "logs/familytree-error.log"
-    CustomLog "logs/familytree-access.log" common
-</VirtualHost>
+```powershell
+New-NetFirewallRule -DisplayName "familytree HTTP" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
 ```
 
-`httpd -t` then restart Apache.
+Apache is no longer used. If it was only there for this app, stop and disable it
+(`Apache2.4` is the default service name — check with `Get-Service *apache*`):
 
-> `docker-compose.yml` defaults `FAMILYTREE_SECURE_COOKIES` to `1` because HTTPS is
-> terminated at Apache. If you ever run it plain HTTP on a LAN, set the
-> `FAMILYTREE_SECURE_COOKIES=0` environment variable for the job/agent or logins
-> won't stick.
+```powershell
+Stop-Service Apache2.4
+Set-Service  Apache2.4 -StartupType Disabled
+```
+
+> `docker-compose.yml` defaults `FAMILYTREE_SECURE_COOKIES` to `0` because the site
+> is plain HTTP — a `Secure` cookie would never be sent back and logins wouldn't
+> stick. Set it to `1` only once HTTPS is in front of the app.
 
 ---
 
@@ -171,7 +176,16 @@ Only needed on a box that ran the pre-Docker deploy. While the old `familytree`
 Windows service exists, the pipeline's **Retire old service** stage fails the build
 until the `familytree_pgdata` volume exists (step 3 creates it), so the app can't come
 up on an empty database by accident. Once it does, that stage stops and deletes the
-old service itself.
+old service itself — if the Jenkins agent account has admin rights. It usually
+doesn't (`Access is denied`); then delete it once by hand from an **Administrator**
+PowerShell and re-run the build. The build log prints the exact commands; the
+service's real name may differ from its display name `familytree`:
+
+```powershell
+Get-Service | Where-Object { $_.Name -like '*family*' -or $_.DisplayName -like '*family*' } | Format-Table Name, DisplayName, Status
+Stop-Service -Name '<Name>' -Force
+sc.exe delete '<Name>'
+```
 
 ```bat
 rem 1. stop the old app service so nothing writes to the host db during the dump
@@ -187,7 +201,7 @@ docker compose -p familytree exec -T db pg_restore -U familytree -d familytree -
 ```
 
 Then **Build Now** in Jenkins (it removes the old service and deploys) and check the
-site through Apache. Once it's confirmed working, delete the old app folder:
+site at `http://<server>:8000/`. Once it's confirmed working, delete the old app folder:
 
 ```bat
 rmdir /s /q C:\apps\familytree

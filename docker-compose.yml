@@ -1,5 +1,6 @@
 # Production stack: the app + its PostgreSQL, run by Jenkins on the Windows
-# box (Docker Desktop). Apache keeps proxying to 127.0.0.1:8000.
+# box (Docker Desktop). The app is served directly on port 8000 (APP_PORT),
+# plain HTTP, with no reverse proxy in front of it.
 #
 # Needs POSTGRES_PASSWORD in the environment (Jenkins injects it from the
 # 'familytree-postgres-password' credential). Keep it alphanumeric: it is
@@ -39,13 +40,16 @@ services:
         condition: service_healthy
     environment:
       FAMILYTREE_DATABASE_URL: postgresql://familytree:${POSTGRES_PASSWORD}@db/familytree
-      # HTTPS is terminated at Apache; set to 0 for plain-HTTP LAN use.
-      FAMILYTREE_SECURE_COOKIES: ${FAMILYTREE_SECURE_COOKIES:-1}
+      # Served over plain HTTP, so the session cookie can't be Secure (logins
+      # wouldn't stick). Set to 1 only if HTTPS is put in front of it again.
+      FAMILYTREE_SECURE_COOKIES: ${FAMILYTREE_SECURE_COOKIES:-0}
       # Only read when no account exists yet (first start on an empty db).
       FAMILYTREE_ADMIN_USERNAME: ${FAMILYTREE_ADMIN_USERNAME:-admin}
       FAMILYTREE_ADMIN_PASSWORD: ${FAMILYTREE_ADMIN_PASSWORD:-}
     ports:
-      - "127.0.0.1:8000:8000"
+      # Host port APP_PORT (default 8000) on every interface -> server.py's
+      # 8000 in the container. Jenkins sets APP_PORT and smoke-checks it.
+      - "${APP_PORT:-8000}:8000"
 
 volumes:
   pgdata:
