@@ -183,7 +183,7 @@ export function buildHierarchy(flatData, rootsData = []) {
         });
     });
 
-    // Hızlı erişim için çocuk haritası oluşturma (O(1) lookup). Parent edges
+    // Child map for O(1) lookup. Parent edges
     // are real parent/child links plus each founding member -> their root.
     const childMap = new Map();
     const addChild = (parentId, childNode) => {
@@ -196,20 +196,20 @@ export function buildHierarchy(flatData, rootsData = []) {
         if (n._rootParentId != null && nodeMap.has(n._rootParentId)) addChild(n._rootParentId, n);
     });
 
-    // Kan Bağı Jenerasyon Hesabı (Kahn topolojik sıralaması, sadece ebeveyn/
-    // çocuk kenarları — evlilik bağları KATILMAZ). Bu yoğun akraba evliliği
-    // olan bir soyağacında şart: biri evlilik yoluyla uzak bir kuzeninin
-    // ailesine bağlıysa (örn. birinin eşi aslında ta yukarıdan bir kuzen),
-    // eski kod bu evlilik kenarını da "aynı jenerasyon" kısıtı olarak BFS'e
-    // katıyordu — BFS hangi yoldan önce ulaşırsa onu kabul ettiğinden, bir
-    // kişinin jenerasyonu kendi doğrudan ebeveyninden değil, çok daha uzak
-    // (ve genelde daha derin) bir akraba zincirinden sızabiliyordu. Sonuç:
-    // doğrudan baba-oğul çiftleri ekranda 2+ satır arayla, sanki dede-torun
-    // gibi görünüyordu. Çözüm: her kişinin jenerasyonunu SADECE kendi kan
-    // bağı zincirindeki en uzun yoldan hesapla (iki ebeveyni varsa ikisinin
-    // de en az bir fazlası); evlilik hizalaması ayrı bir adımda, sadece
-    // kaydı ebeveyni OLMAYAN kişiler için uygulanır (aşağıdaki "Eş
-    // Jenerasyon Sabitleme").
+    // Bloodline generation pass (Kahn topological sort over parent/child
+    // edges only — marriage edges are NOT included). This matters in a tree
+    // with many marriages between relatives: when someone is married into a
+    // distant cousin's family (e.g. a spouse who is really a cousin from far
+    // up the tree), the old code also fed that marriage edge into the BFS as
+    // a "same generation" constraint. Since BFS accepts whichever path reaches
+    // a node first, a person's generation could leak in from a much more
+    // distant (and usually deeper) chain of relatives instead of their direct
+    // parent. Result: direct father/son pairs showed up 2+ rows apart, as if
+    // grandfather and grandson. Fix: compute each person's generation ONLY
+    // from the longest path in their own bloodline (at least one more than
+    // each of their parents); spouse alignment is a separate step, applied
+    // only to people with NO recorded parents (see "Spouse generation
+    // alignment" below).
     const remainingParents = new Map();
     const queue = [];
     nodeMap.forEach(node => {
@@ -238,28 +238,27 @@ export function buildHierarchy(flatData, rootsData = []) {
             if (left === 0) queue.push(child);
         });
     }
-    // Savunma amaçlı: veri hatası yüzünden bir kısır döngü varsa (biri
-    // kendi atası gibi görünüyorsa) yukarıdaki kuyruk hiç boşalmayabilir;
-    // kalan atanmamış düğümleri 1 olarak işaretleyip devam et.
+    // Defensive: if bad data contains a cycle (someone appears to be their
+    // own ancestor), the queue above never drains those nodes; mark any
+    // still-unassigned nodes as 1 and carry on.
     nodeMap.forEach(node => {
         if (node._generation === null) node._generation = 1;
     });
 
-    // Eş Jenerasyon Hizalama + Tutarlılık Düzeltmesi (birleşik relaxation)
-    // İki kural, tek bir sabit noktaya (fixpoint) ulaşana kadar birlikte
-    // uygulanır:
-    //   (a) Her çocuğun jenerasyonu, kaydı ebeveyninden en az 1 fazla olmalı.
-    //       Bu KOŞULSUZ uygulanır — kan bağı (a) kuralı, (b)'den her zaman
-    //       önceliklidir: iki ebeveyn-çocuk çifti asla aynı ya da ters sırada
-    //       görünmemeli.
-    //   (b) Kaydı ebeveyni OLMAYAN biri (saf "dışarıdan gelin/damat", kendi
-    //       soyu bilinmiyor), eşinin jenerasyonuna çekilir. Kaydı ebeveyni
-    //       OLAN biri asla bu şekilde çekilmez — aksi halde eşinin çok daha
-    //       derin bir soydan gelmesi (örn. uzak kuzen evliliği), bu kişinin
-    //       KENDİ ebeveyniyle arasında satır boşluğu açar (Hayrettin-Can
-    //       vakası). Sonuç: nadir "kuşak atlayan" evliliklerde eşler farklı
-    //       satırda görünebilir — bu, gerçek bir kuşak farkını yansıtır,
-    //       hata değildir.
+    // Spouse generation alignment + consistency fix (combined relaxation)
+    // Two rules, applied together until they reach a fixpoint:
+    //   (a) Every child's generation must be at least 1 more than each of
+    //       their recorded parents'. This applies UNCONDITIONALLY — the
+    //       bloodline rule (a) always wins over (b): a parent/child pair must
+    //       never appear on the same row or in reverse order.
+    //   (b) Someone with NO recorded parents (a pure in-law whose own line is
+    //       unknown) is pulled to their spouse's generation. Someone WITH
+    //       recorded parents is never pulled this way — otherwise a spouse
+    //       from a much deeper line (e.g. a distant-cousin marriage) would
+    //       open a row gap between this person and their OWN parents.
+    //       Consequence: in rare generation-skipping marriages the spouses
+    //       can sit on different rows — that reflects a real generation gap
+    //       and is not a bug.
     let changed = true;
     let iterations = 0;
     const maxIterations = nodeMap.size + 5;

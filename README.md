@@ -1,18 +1,19 @@
-# Aile Ağacı
+# Family Tree
 
 A self-hosted, login-protected family tree. A single Python server (`server.py`)
 serves a no-build vanilla-JS frontend and a small JSON API backed by PostgreSQL,
 so every edit made in the browser is written straight to the database. The UI is
-in Turkish.
+in English, and names, places and notes can use any characters, including Turkish
+ones (`ç ğ ı İ ö ş ü`).
 
 ## Features
 
 - **Pan / zoom canvas** — drag to pan, Ctrl/⌘ + wheel or trackpad pinch to zoom, two-finger pinch and double-tap on touch devices.
 - **Search** — matches name, surname and other attributes, folding Turkish letters (`i`/`s`/`g`/`u`/`o`/`c` also match `ı`/`ş`/`ğ`/`ü`/`ö`/`ç`); step through matches with the arrow buttons.
 - **Focus mode** — click a card, then the focus icon in the details panel to show only that person's bloodline (ancestors, descendants and spouses) and fit it to the screen.
-- **İki kişi arası bağ** (relationship path) — pick any two people on the canvas and the shortest chain of relations connecting them is highlighted.
+- **Relationship path** — pick any two people on the canvas and the shortest chain of relations connecting them is highlighted.
 - **Minimap + SVG export** — a click-to-jump overview of the whole tree, and a button to download the currently displayed tree(s) as one vector SVG image (sharp at any zoom, no size ceiling).
-- **Roots** — a "kök" (diamond) marks the origin of an independent family line with its own editable title and generation number; descendant generations are counted down from it.
+- **Roots** — a root (diamond) marks the origin of an independent family line with its own editable title and generation number; descendant generations are counted down from it.
 - **Dark / light theme** — toggled from the top bar; the choice is remembered per browser.
 - **Guided tour** — shown automatically on first login, replayable any time from the (?) button.
 - **Phone & tablet** — see [below](#phone--tablet).
@@ -77,13 +78,7 @@ POSTGRES_PASSWORD=devpass docker compose up -d --build   # then open http://loca
 
 ## Login & accounts
 
-The app requires a login. On the very first run (empty `Users` table), the server creates an `admin` account with a random password and prints it once to the console — copy it before it scrolls away, it is never shown again:
-
-```
- İlk admin hesabı oluşturuldu -- bu bilgiler bir daha gösterilmeyecek:
-   Kullanıcı adı : admin
-   Şifre         : <random>
-```
+The app requires a login. On the very first run (empty `Users` table), the server creates an `admin` account with a random password and prints the username and password once to the console — copy them before they scroll away, they are never shown again.
 
 Set `FAMILYTREE_ADMIN_USERNAME` / `FAMILYTREE_ADMIN_PASSWORD` to pick them yourself instead.
 
@@ -94,7 +89,7 @@ There are three roles:
 
 Each account can optionally be linked to a person in the tree (its `personId`), set from the admin panel — this is just bookkeeping ("who is this login for") and doesn't affect tree logic.
 
-Any logged-in user can change their own password (key icon, top right — needs the current password). Admins can also reset any account's password from the user-management panel ("Şifre sıfırla" under each user, no current password needed). Either way, every other session of that account is logged out.
+Any logged-in user can change their own password (key icon, top right — needs the current password). Admins can also reset any account's password from the user-management panel (the reset-password action under each user, no current password needed). Either way, every other session of that account is logged out.
 
 ## Security
 

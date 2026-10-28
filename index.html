@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow">
-    <title>Aile Ağacı</title>
+    <title>Family Tree</title>
 
     <!-- Apply the saved theme before first paint to avoid a flash.
          Default is light — dark mode is opt-in and only sticks once chosen. -->
@@ -29,17 +29,17 @@
          start out `hidden` so there's no flash of tree content pre-auth. -->
     <div id="login-overlay" class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-50">
         <form id="login-form" class="w-[300px] bg-white rounded-xl shadow-lg border border-slate-200 p-6 flex flex-col gap-3">
-            <h1 class="text-base font-semibold text-slate-800 mb-1">Giriş</h1>
+            <h1 class="text-base font-semibold text-slate-800 mb-1">Log in</h1>
             <label class="flex flex-col gap-0.5">
-                <span class="text-[10px] font-semibold text-slate-500 uppercase">Kullanıcı Adı</span>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase">Username</span>
                 <input type="text" id="login-username" autocomplete="username" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
             </label>
             <label class="flex flex-col gap-0.5">
-                <span class="text-[10px] font-semibold text-slate-500 uppercase">Şifre</span>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase">Password</span>
                 <input type="password" id="login-password" autocomplete="current-password" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
             </label>
             <div id="login-error" class="text-[11px] text-red-500 hidden"></div>
-            <button type="submit" id="btn-login-submit" class="mt-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-md transition-colors cursor-pointer">Giriş Yap</button>
+            <button type="submit" id="btn-login-submit" class="mt-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-md transition-colors cursor-pointer">Log in</button>
         </form>
     </div>
 
@@ -47,26 +47,26 @@
     <div id="app-tree-area" class="hidden flex-1 relative h-full overflow-hidden">
         <!-- Displayed people count -->
         <div id="people-count" class="absolute top-4 left-4 z-30 bg-white/95 backdrop-blur text-slate-600 text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-200 pointer-events-none">
-            0 kişi
+            0 people
         </div>
 
         <!-- User bar: current user + admin panel entry + logout, next to the theme toggle -->
         <div id="top-toolbar" class="absolute top-4 right-4 z-30 flex items-center gap-2">
-            <button id="btn-help-tour" title="Tanıtım turu" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+            <button id="btn-help-tour" title="Guided tour" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
                 <i data-lucide="help-circle" class="w-4 h-4"></i>
             </button>
             <!-- Light / dark theme toggle -->
-            <button id="btn-theme-toggle" title="Aydınlık / karanlık tema" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+            <button id="btn-theme-toggle" title="Light / dark theme" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
                 <i data-lucide="moon" class="w-4 h-4"></i>
             </button>
-            <button id="btn-admin-panel" title="Kullanıcı Yönetimi" class="hidden bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+            <button id="btn-admin-panel" title="User management" class="hidden bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
                 <i data-lucide="shield" class="w-4 h-4"></i>
             </button>
-            <button id="btn-change-password" title="Şifre Değiştir" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+            <button id="btn-change-password" title="Change password" class="bg-white/95 backdrop-blur text-slate-600 hover:text-slate-900 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
                 <i data-lucide="key-round" class="w-4 h-4"></i>
             </button>
             <span id="current-user-badge" class="bg-white/95 backdrop-blur text-slate-600 text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-200"></span>
-            <button id="btn-logout" title="Çıkış Yap" class="bg-white/95 backdrop-blur text-slate-600 hover:text-red-600 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
+            <button id="btn-logout" title="Log out" class="bg-white/95 backdrop-blur text-slate-600 hover:text-red-600 p-2 rounded-lg shadow-sm border border-slate-200 transition-colors cursor-pointer">
                 <i data-lucide="log-out" class="w-4 h-4"></i>
             </button>
         </div>
@@ -76,37 +76,37 @@
             <div class="w-[460px] max-h-[85vh] bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col overflow-hidden">
                 <div class="px-4 py-3 border-b border-slate-200">
                     <div class="flex items-center justify-between">
-                        <h2 class="text-sm font-semibold text-slate-800">Kullanıcı Yönetimi</h2>
+                        <h2 class="text-sm font-semibold text-slate-800">User management</h2>
                         <button id="btn-admin-panel-close" class="p-1 hover:bg-slate-100 rounded-md text-slate-500 cursor-pointer"><i data-lucide="x" class="w-4 h-4"></i></button>
                     </div>
-                    <p class="text-[11px] text-slate-500 mt-1 leading-snug">Giriş hesaplarını buradan ekleyip silebilir, rollerini değiştirebilir ve her hesabı soyağacındaki karşılığı olan kişiyle eşleştirebilirsiniz.</p>
+                    <p class="text-[11px] text-slate-500 mt-1 leading-snug">Add and remove login accounts, change their roles, and link each account to its person in the family tree.</p>
                 </div>
                 <div class="px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 leading-relaxed">
-                    <span class="font-semibold text-slate-600">Admin</span> — kullanıcıları yönetir + her şeyi düzenler&nbsp;·&nbsp;
-                    <span class="font-semibold text-slate-600">Editor</span> — kişi/kök ekler, düzenler, siler&nbsp;·&nbsp;
-                    <span class="font-semibold text-slate-600">Viewer</span> — sadece görüntüler, hiçbir şeyi değiştiremez
+                    <span class="font-semibold text-slate-600">Admin</span> — manages users + edits everything&nbsp;·&nbsp;
+                    <span class="font-semibold text-slate-600">Editor</span> — adds, edits and deletes people/roots&nbsp;·&nbsp;
+                    <span class="font-semibold text-slate-600">Viewer</span> — view only, can't change anything
                 </div>
                 <div class="px-4 pt-3">
-                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Mevcut Kullanıcılar</span>
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Existing users</span>
                 </div>
                 <div id="admin-user-list" class="flex flex-col overflow-y-auto custom-scrollbar text-sm"></div>
                 <div class="border-t border-slate-200 p-3">
-                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Yeni Kullanıcı Ekle</span>
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Add new user</span>
                     <div id="admin-add-error" class="text-[11px] text-red-500 hidden mt-1.5"></div>
                     <div class="flex flex-col gap-2 mt-1.5">
                         <div class="flex gap-2">
                             <label class="flex-1 flex flex-col gap-0.5">
-                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Kullanıcı Adı</span>
-                                <input type="text" id="admin-new-username" placeholder="ör. ayse" class="border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
+                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Username</span>
+                                <input type="text" id="admin-new-username" placeholder="e.g. jane" class="border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
                             </label>
                             <label class="flex-1 flex flex-col gap-0.5">
-                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Şifre (en az 8 karakter)</span>
-                                <input type="password" id="admin-new-password" placeholder="Geçici şifre" class="border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
+                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Password (min. 8 characters)</span>
+                                <input type="password" id="admin-new-password" placeholder="Temporary password" class="border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
                             </label>
                         </div>
                         <div class="flex gap-2">
                             <label class="flex flex-col gap-0.5">
-                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Rol</span>
+                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Role</span>
                                 <select id="admin-new-role" class="border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
                                     <option value="viewer">Viewer</option>
                                     <option value="editor">Editor</option>
@@ -114,13 +114,13 @@
                                 </select>
                             </label>
                             <label class="flex-1 min-w-0 flex flex-col gap-0.5">
-                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Soyağacındaki Kişi (opsiyonel)</span>
+                                <span class="text-[9px] font-semibold text-slate-400 uppercase">Person in the tree (optional)</span>
                                 <select id="admin-new-person" class="w-full border border-slate-300 rounded-md px-2 py-1.5 text-xs outline-none focus:border-blue-400 bg-white text-slate-800">
-                                    <option value="">— Yok —</option>
+                                    <option value="">— None —</option>
                                 </select>
                             </label>
                         </div>
-                        <button id="btn-admin-add-user" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Kullanıcı Ekle</button>
+                        <button id="btn-admin-add-user" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Add user</button>
                     </div>
                 </div>
             </div>
@@ -130,24 +130,24 @@
         <div id="change-password-overlay" class="hidden fixed inset-0 z-[150] items-center justify-center bg-black/40">
             <form id="change-password-form" class="w-[300px] bg-white rounded-xl shadow-lg border border-slate-200 p-6 flex flex-col gap-3">
                 <div class="flex items-center justify-between mb-1">
-                    <h2 class="text-sm font-semibold text-slate-800">Şifre Değiştir</h2>
+                    <h2 class="text-sm font-semibold text-slate-800">Change password</h2>
                     <button type="button" id="btn-change-password-close" class="p-1 hover:bg-slate-100 rounded-md text-slate-500 cursor-pointer"><i data-lucide="x" class="w-4 h-4"></i></button>
                 </div>
                 <label class="flex flex-col gap-0.5">
-                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Mevcut Şifre</span>
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Current password</span>
                     <input type="password" id="change-password-current" autocomplete="current-password" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
                 </label>
                 <label class="flex flex-col gap-0.5">
-                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Yeni Şifre (en az 8 karakter)</span>
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">New password (min. 8 characters)</span>
                     <input type="password" id="change-password-new" autocomplete="new-password" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
                 </label>
                 <label class="flex flex-col gap-0.5">
-                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Yeni Şifre (tekrar)</span>
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase">New password (again)</span>
                     <input type="password" id="change-password-confirm" autocomplete="new-password" required class="border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:border-blue-400 bg-white text-slate-800">
                 </label>
                 <div id="change-password-error" class="text-[11px] text-red-500 hidden"></div>
-                <div id="change-password-success" class="text-[11px] text-slate-500 hidden">Şifreniz güncellendi.</div>
-                <button type="submit" id="btn-change-password-submit" class="mt-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-md transition-colors cursor-pointer">Kaydet</button>
+                <div id="change-password-success" class="text-[11px] text-slate-500 hidden">Your password has been updated.</div>
+                <button type="submit" id="btn-change-password-submit" class="mt-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-md transition-colors cursor-pointer">Save</button>
             </form>
         </div>
 
@@ -187,13 +187,13 @@
                 <button id="btn-focus" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Focus">
                     <i data-lucide="focus" class="w-5 h-5"></i>
                 </button>
-                <button id="btn-edit-details" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Düzenle">
+                <button id="btn-edit-details" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Edit">
                     <i data-lucide="pencil" class="w-5 h-5"></i>
                 </button>
-                <button id="btn-delete-details" class="p-2 hover:bg-red-50 text-slate-600 hover:text-red-500 transition-colors cursor-pointer flex-1 flex justify-center" title="Sil">
+                <button id="btn-delete-details" class="p-2 hover:bg-red-50 text-slate-600 hover:text-red-500 transition-colors cursor-pointer flex-1 flex justify-center" title="Delete">
                     <i data-lucide="trash-2" class="w-5 h-5"></i>
                 </button>
-                <button id="btn-close-details" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Kapat">
+                <button id="btn-close-details" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Close">
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
@@ -202,39 +202,39 @@
         <!-- Search -->
         <div class="flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
             <div class="flex items-center justify-center">
-                <input type="text" id="search-input" placeholder="Arama" class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
-                <button id="btn-search-clear" class="p-3 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer hidden justify-center shrink-0" title="Temizle">
+                <input type="text" id="search-input" placeholder="Search" class="w-full px-3 py-2 text-sm outline-none bg-transparent placeholder-slate-400 text-slate-700">
+                <button id="btn-search-clear" class="p-3 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer hidden justify-center shrink-0" title="Clear">
                     <i data-lucide="x" class="w-4 h-4"></i>
                 </button>
             </div>
             <div class="flex items-stretch border-t border-slate-200">
-                <button id="btn-search-prev" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex items-center justify-center" title="Önceki Sonuç">
+                <button id="btn-search-prev" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex items-center justify-center" title="Previous result">
                     <i data-lucide="chevron-left" class="w-4 h-4"></i>
                 </button>
-                <button id="btn-search-next" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex items-center justify-center" title="Sonraki Sonuç">
+                <button id="btn-search-next" class="flex-1 p-2 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors cursor-pointer flex items-center justify-center" title="Next result">
                     <i data-lucide="chevron-right" class="w-4 h-4"></i>
                 </button>
             </div>
         </div>
 
-        <!-- İki kişi arası bağ -->
+        <!-- Relationship path between two people -->
         <div class="flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
-            <button id="btn-relationship" title="İki kişi arasındaki bağı göster" class="flex items-center justify-center gap-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
+            <button id="btn-relationship" title="Show how two people are related" class="flex items-center justify-center gap-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
                 <i data-lucide="route" class="w-5 h-5"></i>
             </button>
             <div id="relationship-status" class="hidden flex-col gap-2 text-xs text-slate-600 border-t border-slate-200 p-3">
                 <p id="relationship-instr" class="leading-snug"></p>
                 <div id="relationship-chain" class="hidden flex-col gap-1 text-[11px]"></div>
-                <button id="btn-relationship-cancel" class="bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Kapat</button>
+                <button id="btn-relationship-cancel" class="bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Close</button>
             </div>
         </div>
 
         <!-- Add Person / Add Root -->
         <div class="flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4 shrink-0">
-            <button id="btn-add-root" title="Kök Ekle" class="flex-1 flex items-center justify-center gap-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
+            <button id="btn-add-root" title="Add root" class="flex-1 flex items-center justify-center gap-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
                 <i data-lucide="diamond" class="w-5 h-5"></i>
             </button>
-            <button id="btn-add-person" title="Kişi Ekle" class="flex-1 flex items-center justify-center gap-2 border-l border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
+            <button id="btn-add-person" title="Add person" class="flex-1 flex items-center justify-center gap-2 border-l border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer p-2 text-sm font-medium">
                 <i data-lucide="user-plus" class="w-5 h-5"></i>
             </button>
         </div>
@@ -258,7 +258,7 @@
                 <button id="btn-zoom-reset" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Reset Zoom">
                     <i data-lucide="maximize" class="w-5 h-5"></i>
                 </button>
-                <button id="btn-export-png" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Görüntülenen ağac(lar)ı tek bir SVG görüntü olarak indir">
+                <button id="btn-export-png" class="p-2 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer flex-1 flex justify-center" title="Download the displayed tree(s) as one SVG image">
                     <i data-lucide="download" class="w-5 h-5"></i>
                 </button>
             </div>
@@ -270,7 +270,7 @@
 
         <!-- Build stamp. Filled from /version.json, which Jenkins rewrites on
              every deploy (see the "Stamp version" stage in the Jenkinsfile);
-             the copy committed to the repo just reads "yerel geliştirme". -->
+             the copy committed to the repo shows a "local development" label. -->
         <div id="app-version" class="mt-auto pt-3 text-center text-[10px] text-slate-400 font-mono select-text"></div>
     </div>
 
@@ -280,7 +280,7 @@
          bottom sheet instead — see the Responsive section in css/app.css.
          Both are display:none above the breakpoint; the `hidden` class keeps
          the button off the login screen and is removed by showApp(). -->
-    <button id="btn-sidebar-toggle" title="Araçlar" class="hidden bg-white text-slate-600 hover:text-slate-900 shadow-lg border border-slate-200 transition-colors cursor-pointer">
+    <button id="btn-sidebar-toggle" title="Tools" class="hidden bg-white text-slate-600 hover:text-slate-900 shadow-lg border border-slate-200 transition-colors cursor-pointer">
         <i data-lucide="panel-right" class="w-5 h-5"></i>
     </button>
     <div id="sidebar-backdrop"></div>

@@ -8,7 +8,7 @@ export async function getMe() {
     const res = await fetch(`${API_BASE}/me`);
     if (res.status === 401) return null;
     if (!res.ok) {
-        throw new Error(`Oturum kontrol edilemedi (${res.status}: ${res.statusText})`);
+        throw new Error(`Could not check the session (${res.status}: ${res.statusText})`);
     }
     return res.json();
 }
@@ -21,7 +21,7 @@ export async function login(username, password) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Giriş başarısız (${res.status})`);
+        throw new Error(body.error || `Login failed (${res.status})`);
     }
     return res.json();
 }
@@ -38,7 +38,7 @@ export async function changeMyPassword(currentPassword, password) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Şifre değiştirilemedi (${res.status})`);
+        throw new Error(body.error || `Could not change the password (${res.status})`);
     }
     return res.json();
 }
@@ -47,7 +47,7 @@ export async function listUsers() {
     const res = await fetch(`${API_BASE}/users`);
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kullanıcılar yüklenemedi (${res.status})`);
+        throw new Error(body.error || `Could not load users (${res.status})`);
     }
     return res.json();
 }
@@ -60,7 +60,7 @@ export async function createUser(fields) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kullanıcı eklenemedi (${res.status})`);
+        throw new Error(body.error || `Could not add the user (${res.status})`);
     }
     return res.json();
 }
@@ -73,7 +73,7 @@ export async function updateUser(id, fields) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kullanıcı güncellenemedi (${res.status})`);
+        throw new Error(body.error || `Could not update the user (${res.status})`);
     }
     return res.json();
 }
@@ -82,7 +82,7 @@ export async function deleteUser(id) {
     const res = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE' });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kullanıcı silinemedi (${res.status})`);
+        throw new Error(body.error || `Could not delete the user (${res.status})`);
     }
     return res.json();
 }
@@ -90,7 +90,7 @@ export async function deleteUser(id) {
 export async function getTree() {
     const res = await fetch(`${API_BASE}/tree`);
     if (!res.ok) {
-        throw new Error(`Aile ağacı yüklenemedi (${res.status}: ${res.statusText})`);
+        throw new Error(`Could not load the family tree (${res.status}: ${res.statusText})`);
     }
     return res.json();
 }
@@ -103,7 +103,7 @@ export async function updatePerson(id, fields) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kaydetme başarısız (${res.status})`);
+        throw new Error(body.error || `Save failed (${res.status})`);
     }
     return res.json();
 }
@@ -116,7 +116,7 @@ export async function createPerson(fields) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kişi eklenemedi (${res.status})`);
+        throw new Error(body.error || `Could not add the person (${res.status})`);
     }
     return res.json();
 }
@@ -125,7 +125,7 @@ export async function deletePerson(id) {
     const res = await fetch(`${API_BASE}/people/${id}`, { method: 'DELETE' });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kişi silinemedi (${res.status})`);
+        throw new Error(body.error || `Could not delete the person (${res.status})`);
     }
     return res.json();
 }
@@ -138,7 +138,7 @@ export async function createRoot(fields) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kök eklenemedi (${res.status})`);
+        throw new Error(body.error || `Could not add the root (${res.status})`);
     }
     return res.json();
 }
@@ -151,7 +151,7 @@ export async function updateRoot(id, fields) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kök kaydedilemedi (${res.status})`);
+        throw new Error(body.error || `Could not save the root (${res.status})`);
     }
     return res.json();
 }
@@ -160,7 +160,7 @@ export async function deleteRoot(id) {
     const res = await fetch(`${API_BASE}/roots/${id}`, { method: 'DELETE' });
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Kök silinemedi (${res.status})`);
+        throw new Error(body.error || `Could not delete the root (${res.status})`);
     }
     return res.json();
 }

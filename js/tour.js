@@ -14,62 +14,62 @@ const STEPS = [
     {
         target: null,
         icon: 'user',
-        title: 'Aile Ağacına Hoş Geldiniz',
-        body: 'Ağacı fareyle sürükleyerek gezinebilir, kaydırırken Ctrl (⌘) tuşuyla yakınlaştırabilirsiniz. Bir kişi kartına tıklayınca sağ panelde ayrıntıları açılır: o kişiye odaklanma, düzenleme ve silme. Bu kısa tanıtım kalan araçları gösterir.',
+        title: 'Welcome to the Family Tree',
+        body: 'Drag with the mouse to move around the tree, and hold Ctrl (⌘) while scrolling to zoom. Click a person\'s card to open their details in the right panel: focus on that person, edit or delete. This short tour shows the remaining tools.',
     },
     {
         target: '#search-input',
         icon: 'zoom-in',
-        title: 'Arama',
-        body: 'İsimle kişi arayın. Alttaki oklarla sonuçlar arasında gezinir, X ile aramayı temizlersiniz.',
+        title: 'Search',
+        body: 'Search for people by name. Use the arrows below to step through the results, and X to clear the search.',
     },
     {
         target: '#btn-relationship',
         icon: 'route',
-        title: 'İki Kişi Arası Bağ',
-        body: 'Bu düğmeye basıp ağaçtan iki kişi seçin; aralarındaki akrabalık yolu vurgulanarak çizilir.',
+        title: 'Relationship Path',
+        body: 'Press this button and pick two people in the tree; the chain of relations between them is drawn highlighted.',
     },
     {
         target: '#btn-add-person',
         icon: 'user-plus',
-        title: 'Kişi ve Kök Ekleme',
-        body: 'Yeni kişi ekleyin ya da bir "kök" (bir soy hattının başlangıcı) tanımlayın. Yalnızca editor ve admin hesaplarında görünür.',
+        title: 'Adding People and Roots',
+        body: 'Add a new person, or define a "root" (the start of a family line). Only visible to editor and admin accounts.',
     },
     {
         target: '#generation-legend',
         icon: 'diamond',
-        title: 'Nesil Renkleri',
-        body: 'Her nesil bir renkle gösterilir. Liste, ağaçta o an görünen nesilleri özetler.',
+        title: 'Generation Colors',
+        body: 'Each generation has its own color. The list summarizes the generations currently shown in the tree.',
     },
     {
         target: '#minimap-wrapper',
         icon: 'maximize',
-        title: 'Küçük Harita ve Yakınlaştırma',
-        body: 'Genel görünümde konumunuzu gösterir; tıklayarak atlarsınız. Üstteki düğmelerle yakınlaştırıp uzaklaşır, görünen ağacı SVG olarak indirirsiniz.',
+        title: 'Minimap and Zoom',
+        body: 'Shows where you are in the overall view; click to jump there. The buttons above zoom in and out and download the displayed tree as SVG.',
     },
     {
         target: '#btn-admin-panel',
         icon: 'shield',
-        title: 'Kullanıcı Yönetimi',
-        body: 'Giriş hesaplarını ekleyip silin, rolleri değiştirin ve her hesabı ağaçtaki kişiyle eşleştirin. Yalnızca admin.',
+        title: 'User Management',
+        body: 'Add and remove login accounts, change roles, and link each account to its person in the tree. Admin only.',
     },
     {
         target: '#btn-change-password',
         icon: 'key-round',
-        title: 'Şifre Değiştir',
-        body: 'Kendi şifrenizi buradan değiştirebilirsiniz (mevcut şifreniz gerekir).',
+        title: 'Change Password',
+        body: 'Change your own password here (your current password is required).',
     },
     {
         target: '#btn-theme-toggle',
         icon: 'moon',
-        title: 'Tema',
-        body: 'Aydınlık ve karanlık görünüm arasında geçiş yapar. Tercihiniz bu tarayıcıda hatırlanır.',
+        title: 'Theme',
+        body: 'Switches between light and dark mode. Your choice is remembered in this browser.',
     },
     {
         target: '#btn-logout',
         icon: 'log-out',
-        title: 'Çıkış',
-        body: 'Oturumu kapatır. Bir dahaki girişte bu tanıtım yeniden gösterilir — istediğiniz zaman sağ üstteki (?) düğmesinden de açabilirsiniz.',
+        title: 'Log Out',
+        body: 'Ends your session. This tour is shown again on your next login — you can also open it any time with the (?) button at the top right.',
     },
 ];
 
@@ -158,15 +158,15 @@ export function startTour() {
         <div id="ft-tour-backdrop"></div>
         <div id="ft-tour-hole"></div>
         <div id="ft-tour-card" role="dialog" aria-modal="true" aria-labelledby="ft-tour-title">
-            <button class="ft-tour-close" aria-label="Kapat">${iconMarkup('x')}</button>
+            <button class="ft-tour-close" aria-label="Close">${iconMarkup('x')}</button>
             <div class="ft-tour-step"></div>
             <div class="ft-tour-title" id="ft-tour-title"></div>
             <div class="ft-tour-body"></div>
             <div class="ft-tour-actions">
-                <button class="ft-tour-btn ft-tour-btn-ghost" data-act="skip">Tanıtımı geç</button>
+                <button class="ft-tour-btn ft-tour-btn-ghost" data-act="skip">Skip tour</button>
                 <span class="ft-spacer"></span>
-                <button class="ft-tour-btn ft-tour-btn-secondary" data-act="back">Geri</button>
-                <button class="ft-tour-btn ft-tour-btn-primary" data-act="next">İleri</button>
+                <button class="ft-tour-btn ft-tour-btn-secondary" data-act="back">Back</button>
+                <button class="ft-tour-btn ft-tour-btn-primary" data-act="next">Next</button>
             </div>
         </div>`;
     document.body.appendChild(root);
@@ -234,7 +234,7 @@ export function startTour() {
         elTitle.innerHTML = `${iconMarkup(step.icon || 'help-circle')}<span>${step.title}</span>`;
         elBody.textContent = step.body;
         btnBack.style.visibility = i === 0 ? 'hidden' : 'visible';
-        btnNext.textContent = i === steps.length - 1 ? 'Bitir' : 'İleri';
+        btnNext.textContent = i === steps.length - 1 ? 'Finish' : 'Next';
 
         const target = step.target && document.querySelector(step.target);
         if (target && target.scrollIntoView) {

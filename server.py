@@ -168,7 +168,7 @@ def ensure_schema():
         ):
             removed = conn.execute(sql).rowcount
             if removed:
-                print(f"  temizlendi: {removed} artık geçersiz {label} bağlantısı silindi")
+                print(f"  cleanup: removed {removed} dangling {label} link(s)")
 
 
 def hash_password(password):
@@ -210,10 +210,10 @@ def ensure_initial_admin():
             (username, hash_password(password)),
         )
         print("=" * 64)
-        print(" İlk admin hesabı oluşturuldu -- bu bilgiler bir daha gösterilmeyecek:")
-        print(f"   Kullanıcı adı : {username}")
-        print(f"   Şifre         : {password}")
-        print(" Giriş yaptıktan sonra şifrenizi değiştirmeniz önerilir.")
+        print(" First admin account created -- these details will not be shown again:")
+        print(f"   Username : {username}")
+        print(f"   Password : {password}")
+        print(" Changing the password after logging in is recommended.")
         print("=" * 64)
 
 
@@ -283,20 +283,20 @@ def login(username, password):
         row = conn.execute("SELECT * FROM Users WHERE lower(username) = lower(%s)", (username,)).fetchone()
         stored = row["passwordhash"] if row else _DUMMY_PASSWORD_HASH
         if not verify_password(password or "", stored) or row is None:
-            raise ValueError("Kullanıcı adı veya şifre hatalı.")
+            raise ValueError("Incorrect username or password.")
         token = create_session(conn, row["id"])
         return token, _user_public(row)
 
 
 def change_own_password(user_id, current_password, new_password, keep_token=None):
     if len(new_password or "") < 8:
-        raise ValueError("Yeni şifre en az 8 karakter olmalıdır.")
+        raise ValueError("The new password must be at least 8 characters.")
     with db(write=True) as conn:
         row = conn.execute("SELECT passwordHash FROM Users WHERE id = %s", (user_id,)).fetchone()
         if row is None:
-            raise LookupError("Kullanıcı bulunamadı.")
+            raise LookupError("User not found.")
         if not verify_password(current_password or "", row["passwordhash"]):
-            raise ValueError("Mevcut şifre yanlış.")
+            raise ValueError("The current password is incorrect.")
         conn.execute("UPDATE Users SET passwordHash = %s WHERE id = %s", (hash_password(new_password), user_id))
         revoke_sessions(conn, user_id, keep_token)
 
@@ -313,7 +313,7 @@ def _user_public(row):
 
 def _validate_role(role):
     if role not in ROLES:
-        raise ValueError("Geçersiz rol.")
+        raise ValueError("Invalid role.")
     return role
 
 
@@ -323,18 +323,18 @@ def _validate_person_id(conn, person_id):
     try:
         person_id = int(person_id)
     except (TypeError, ValueError):
-        raise ValueError("Geçersiz kişi kimliği.")
+        raise ValueError("Invalid person id.")
     if conn.execute("SELECT id FROM People WHERE id = %s", (person_id,)).fetchone() is None:
-        raise ValueError(f"Kişi ({person_id}) bulunamadı.")
+        raise ValueError(f"Person ({person_id}) not found.")
     return person_id
 
 
 def _last_admin_guard(conn, *, action):
-    """Raise if only one admin account remains. `action` is a short Turkish
-    verb phrase for the error message ('silinemez' / 'rolü değiştirilemez')."""
+    """Raise if only one admin account remains. `action` is a short verb
+    phrase completing the (user-facing) error message, e.g. "cannot be deleted"."""
     admin_count = conn.execute("SELECT COUNT(*) AS c FROM Users WHERE role = 'admin'").fetchone()["c"]
     if admin_count <= 1:
-        raise ValueError(f"Son admin kullanıcısı {action}.")
+        raise ValueError(f"The last admin user {action}.")
 
 
 def list_users():
@@ -347,14 +347,14 @@ def create_user(fields):
     password = str(fields.get("password") or "")
     role = _validate_role(fields.get("role") or "viewer")
     if not username:
-        raise ValueError("Kullanıcı adı boş olamaz.")
+        raise ValueError("Username cannot be empty.")
     if len(password) < 8:
-        raise ValueError("Şifre en az 8 karakter olmalıdır.")
+        raise ValueError("The password must be at least 8 characters.")
 
     with db(write=True) as conn:
         person_id = _validate_person_id(conn, fields.get("personId"))
         if conn.execute("SELECT id FROM Users WHERE lower(username) = lower(%s)", (username,)).fetchone():
-            raise ValueError("Bu kullanıcı adı zaten kullanılıyor.")
+            raise ValueError("This username is already taken.")
         new_id = conn.execute(
             "INSERT INTO Users (username, passwordHash, role, personId) VALUES (%s, %s, %s, %s) RETURNING id",
             (username, hash_password(password), role, person_id),
@@ -366,23 +366,23 @@ def update_user(user_id, fields, keep_token=None):
     with db(write=True) as conn:
         row = conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone()
         if row is None:
-            raise LookupError("Kullanıcı bulunamadı.")
+            raise LookupError("User not found.")
 
         if "username" in fields:
             username = str(fields["username"] or "").strip()
             if not username:
-                raise ValueError("Kullanıcı adı boş olamaz.")
+                raise ValueError("Username cannot be empty.")
             existing = conn.execute(
                 "SELECT id FROM Users WHERE lower(username) = lower(%s) AND id != %s", (username, user_id)
             ).fetchone()
             if existing:
-                raise ValueError("Bu kullanıcı adı zaten kullanılıyor.")
+                raise ValueError("This username is already taken.")
             conn.execute("UPDATE Users SET username = %s WHERE id = %s", (username, user_id))
 
         if "role" in fields:
             new_role = _validate_role(fields["role"])
             if row["role"] == "admin" and new_role != "admin":
-                _last_admin_guard(conn, action="rolü değiştirilemez")
+                _last_admin_guard(conn, action="cannot have its role changed")
             conn.execute("UPDATE Users SET role = %s WHERE id = %s", (new_role, user_id))
 
         if "personId" in fields:
@@ -392,7 +392,7 @@ def update_user(user_id, fields, keep_token=None):
         if fields.get("password"):
             password = str(fields["password"])
             if len(password) < 8:
-                raise ValueError("Şifre en az 8 karakter olmalıdır.")
+                raise ValueError("The password must be at least 8 characters.")
             conn.execute("UPDATE Users SET passwordHash = %s WHERE id = %s", (hash_password(password), user_id))
             revoke_sessions(conn, user_id, keep_token)
 
@@ -401,13 +401,13 @@ def update_user(user_id, fields, keep_token=None):
 
 def delete_user(user_id, acting_user_id):
     if user_id == acting_user_id:
-        raise ValueError("Kendi hesabınızı silemezsiniz.")
+        raise ValueError("You cannot delete your own account.")
     with db(write=True) as conn:
         row = conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone()
         if row is None:
-            raise LookupError("Kullanıcı bulunamadı.")
+            raise LookupError("User not found.")
         if row["role"] == "admin":
-            _last_admin_guard(conn, action="silinemez")
+            _last_admin_guard(conn, action="cannot be deleted")
         # Sessions cascade on the Users delete (Postgres enforces the FK).
         conn.execute("DELETE FROM Users WHERE id = %s", (user_id,))
 
@@ -471,9 +471,10 @@ def _next_id(conn, table):
 
 def _coerce_id_list(values, *, self_id, kind):
     """Shared parse+dedupe for parent/spouse/member id lists coming off the
-    wire. `kind` is a Turkish noun ('ebeveyn' / 'eş' / 'kişi') for messages."""
+    wire. `kind` names the relation (parent / spouse / person)
+    in the user-facing error messages."""
     if not isinstance(values, list):
-        raise ValueError(f"Geçersiz {kind} listesi.")
+        raise ValueError(f"Invalid {kind} list.")
     ids = []
     for raw in values:
         if raw is None:
@@ -481,9 +482,9 @@ def _coerce_id_list(values, *, self_id, kind):
         try:
             val = int(raw)
         except (TypeError, ValueError):
-            raise ValueError(f"Geçersiz {kind} kimliği.")
+            raise ValueError(f"Invalid {kind} id.")
         if val == self_id:
-            raise ValueError(f"Bir kişi kendi {kind}i olamaz.")
+            raise ValueError(f"A person cannot be their own {kind}.")
         if val not in ids:
             ids.append(val)
     return ids
@@ -492,19 +493,19 @@ def _coerce_id_list(values, *, self_id, kind):
 def _require_people_exist(conn, ids, *, kind):
     for pid in ids:
         if conn.execute("SELECT id FROM People WHERE id = %s", (pid,)).fetchone() is None:
-            raise ValueError(f"{kind} olarak seçilen kişi ({pid}) bulunamadı.")
+            raise ValueError(f"The person selected as {kind} ({pid}) was not found.")
 
 
 def _update_parents(conn, person_id, parent_ids):
     if not isinstance(parent_ids, list) or len(parent_ids) > 2:
-        raise ValueError("Geçersiz ebeveyn listesi.")
-    ids = _coerce_id_list(parent_ids, self_id=person_id, kind="ebeveyn")
+        raise ValueError("Invalid parent list.")
+    ids = _coerce_id_list(parent_ids, self_id=person_id, kind="parent")
 
     for pid in ids:
         if conn.execute("SELECT id FROM People WHERE id = %s", (pid,)).fetchone() is None:
-            raise ValueError(f"Ebeveyn olarak seçilen kişi ({pid}) bulunamadı.")
+            raise ValueError(f"The person selected as parent ({pid}) was not found.")
         if person_id in _ancestor_ids(conn, pid):
-            raise ValueError("Bu seçim döngüsel bir soy ilişkisi oluşturur.")
+            raise ValueError("This choice would create a circular ancestry.")
 
     existing = conn.execute("SELECT id FROM Parents WHERE childId = %s", (person_id,)).fetchone()
     if not ids:
@@ -531,8 +532,8 @@ def _set_spouses(conn, person_id, spouse_ids, *, replace):
     with replace=False, only ever add (used at person creation)."""
     if spouse_ids is None:
         return
-    ids = _coerce_id_list(spouse_ids, self_id=person_id, kind="eş")
-    _require_people_exist(conn, ids, kind="Eş")
+    ids = _coerce_id_list(spouse_ids, self_id=person_id, kind="spouse")
+    _require_people_exist(conn, ids, kind="spouse")
 
     existing_rows = conn.execute(
         "SELECT id, spouse1Id, spouse2Id FROM Spouses WHERE spouse1Id = %s OR spouse2Id = %s",
@@ -560,16 +561,16 @@ def _validate_generation(value):
     try:
         value = int(value)
     except (TypeError, ValueError):
-        raise ValueError("Jenerasyon bir tam sayı olmalıdır.")
+        raise ValueError("Generation must be a whole number.")
     if value < 1:
-        raise ValueError("Jenerasyon 1 veya daha büyük olmalıdır.")
+        raise ValueError("Generation must be 1 or more.")
     return value
 
 
 def _root_dict(conn, root_id):
     row = conn.execute("SELECT id, title, generation FROM Roots WHERE id = %s", (root_id,)).fetchone()
     if row is None:
-        raise LookupError("Kök bulunamadı.")
+        raise LookupError("Root not found.")
     members = [
         r["personid"]
         for r in conn.execute("SELECT personId FROM RootMembers WHERE rootId = %s ORDER BY personId", (root_id,))
@@ -578,8 +579,8 @@ def _root_dict(conn, root_id):
 
 
 def _set_root_members(conn, root_id, member_ids):
-    ids = _coerce_id_list(member_ids, self_id=None, kind="kişi")
-    _require_people_exist(conn, ids, kind="Kişi")
+    ids = _coerce_id_list(member_ids, self_id=None, kind="member")
+    _require_people_exist(conn, ids, kind="member")
 
     # A person belongs to at most one root: clear this root's current members
     # and any prior membership of the incoming people, then re-insert.
@@ -605,7 +606,7 @@ def create_root(fields):
 def update_root(root_id, fields):
     with db(write=True) as conn:
         if conn.execute("SELECT id FROM Roots WHERE id = %s", (root_id,)).fetchone() is None:
-            raise LookupError("Kök bulunamadı.")
+            raise LookupError("Root not found.")
 
         if "title" in fields:
             title = str(fields.get("title") or "ROOT").strip() or "ROOT"
@@ -624,7 +625,7 @@ def update_root(root_id, fields):
 def delete_root(root_id):
     with db(write=True) as conn:
         if conn.execute("SELECT id FROM Roots WHERE id = %s", (root_id,)).fetchone() is None:
-            raise LookupError("Kök bulunamadı.")
+            raise LookupError("Root not found.")
         # RootMembers cascades on the Roots delete (Postgres enforces the FK).
         conn.execute("DELETE FROM Roots WHERE id = %s", (root_id,))
 
@@ -636,10 +637,10 @@ def _clean_person_updates(fields):
     if "name" in updates:
         name = str(updates.get("name") or "").strip()
         if not name:
-            raise ValueError("Ad boş olamaz.")
+            raise ValueError("Name cannot be empty.")
         updates["name"] = name
     if "gender" in updates and updates["gender"] not in (0, 1, 2):
-        raise ValueError("Geçersiz cinsiyet değeri.")
+        raise ValueError("Invalid gender value.")
     return updates
 
 
@@ -667,7 +668,7 @@ def _person_with_links(conn, person_id):
 def create_person(fields):
     updates = _clean_person_updates(fields)
     if not str(updates.get("name") or "").strip():
-        raise ValueError("Ad boş olamaz.")
+        raise ValueError("Name cannot be empty.")
 
     parent_ids = fields.get("parentIds")
     spouse_ids = fields.get("spouseIds")
@@ -689,7 +690,7 @@ def create_person(fields):
 def delete_person(person_id):
     with db(write=True) as conn:
         if conn.execute("SELECT id FROM People WHERE id = %s", (person_id,)).fetchone() is None:
-            raise LookupError("Kişi bulunamadı.")
+            raise LookupError("Person not found.")
 
         # Detach this person from the Parents rows of their *children* first,
         # promoting the co-parent so the child keeps a recorded parent rather
@@ -720,11 +721,11 @@ def update_person(person_id, fields):
     spouse_ids = fields.get("spouseIds")
     updates = _clean_person_updates(fields)
     if not updates and parent_ids is None and spouse_ids is None:
-        raise ValueError("Düzenlenecek geçerli bir alan gönderilmedi.")
+        raise ValueError("No valid field to update was sent.")
 
     with db(write=True) as conn:
         if conn.execute("SELECT id FROM People WHERE id = %s", (person_id,)).fetchone() is None:
-            raise LookupError("Kişi bulunamadı.")
+            raise LookupError("Person not found.")
 
         if updates:
             set_clause = ", ".join(f"{key} = %s" for key in updates)
@@ -812,7 +813,7 @@ class Handler(BaseHTTPRequestHandler):
     def _send_server_error(self):
         # The details (SQL, connection info) go to the log, not the client.
         traceback.print_exc()
-        self._send_json(500, {"error": "Sunucu hatası."})
+        self._send_json(500, {"error": "Server error."})
 
     def _send_json(self, status, payload, cookie=None):
         # default=str: createdAt comes back from Postgres as a datetime.
@@ -841,10 +842,10 @@ class Handler(BaseHTTPRequestHandler):
     def _read_body(self):
         length = int(self.headers.get("Content-Length", 0) or 0)
         if length < 0 or length > MAX_BODY_BYTES:
-            raise ValueError("Geçersiz istek boyutu.")
+            raise ValueError("Invalid request size.")
         body = json.loads(self.rfile.read(length) or b"{}")
         if not isinstance(body, dict):
-            raise ValueError("Geçersiz istek.")
+            raise ValueError("Invalid request.")
         return body
 
     def _current_user(self, token):
@@ -857,12 +858,12 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_login(self):
         ip = self.client_address[0]
         if not _check_rate_limit(ip):
-            self._send_json(429, {"error": "Çok fazla başarısız deneme yapıldı. Lütfen birkaç dakika sonra tekrar deneyin."})
+            self._send_json(429, {"error": "Too many failed attempts. Please try again in a few minutes."})
             return
         try:
             body = self._read_body()
         except (json.JSONDecodeError, ValueError):
-            self._send_json(400, {"error": "Geçersiz istek."})
+            self._send_json(400, {"error": "Invalid request."})
             return
         try:
             token, user = login(body.get("username"), body.get("password"))
@@ -945,10 +946,10 @@ class Handler(BaseHTTPRequestHandler):
             token = self._get_cookie(SESSION_COOKIE_NAME)
             user = self._current_user(token)
             if user is None:
-                self._send_json(401, {"error": "Oturum açılmamış."})
+                self._send_json(401, {"error": "Not logged in."})
                 return True
             if roles is not None and user["role"] not in roles:
-                self._send_json(403, {"error": "Bu işlem için yetkiniz yok."})
+                self._send_json(403, {"error": "You are not allowed to do this."})
                 return True
 
             body = {}

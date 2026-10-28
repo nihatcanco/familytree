@@ -51,7 +51,7 @@ export function generateCardHTML(person, isSpouse = false) {
     let html = `<div ${personIdAttr} ${parentIdsAttr} ${spouseIdsAttr} ${genAttr} ${detailsAttr} class="tree-node-card ${cardClass} bg-white border border-slate-300 rounded-xl p-4 shadow-sm w-[220px] min-h-[10em] text-center absolute z-10 cursor-pointer min-w-0 h-fit overflow-hidden">
         <span class="absolute top-1 right-2 text-[9px] font-mono text-slate-300 opacity-70 select-none pointer-events-none">#${escapeHTML(String(person.id))}</span>`;
     if (person._generation) {
-        html += `<span class="absolute top-1 left-2 text-[9px] font-mono text-slate-300 opacity-70 select-none pointer-events-none">${person._generation}. Nesil</span>`;
+        html += `<span class="absolute top-1 left-2 text-[9px] font-mono text-slate-300 opacity-70 select-none pointer-events-none">${person._generation}. generation</span>`;
     }
     html += `<div class="card-header">
         ${portraitHtml}
@@ -84,8 +84,8 @@ export function generateCardHTML(person, isSpouse = false) {
         }
         if (bd || dd) {
             const dateLines = [];
-            if (bd) dateLines.push(`D: ${escapeHTML(bd)}`);
-            if (dd) dateLines.push(`Ö: ${escapeHTML(dd)}`);
+            if (bd) dateLines.push(`Born: ${escapeHTML(bd)}`);
+            if (dd) dateLines.push(`Died: ${escapeHTML(dd)}`);
             html += `<div class="flex items-start gap-1.5 text-left">
                         <i data-lucide="calendar" class="w-3 h-3 mt-0.5 shrink-0 text-slate-400"></i>
                         <span class="min-w-0 break-words">${dateLines.join('<br>')}</span>
@@ -170,7 +170,7 @@ export function cardToSvgFragment(card) {
         ty += 17;
     }
     for (const key of Object.keys(attrs).filter(k => k !== 'surname' && k !== 'gender')) {
-        const label = key.charAt(0).toLocaleUpperCase('tr') + key.slice(1);
+        const label = key.charAt(0).toUpperCase() + key.slice(1);
         const isNote = key === 'note';
         const lines = wrapToLines(`${label}: ${attrs[key]}`, 30);
         const lh = 13;

@@ -122,15 +122,21 @@ def main():
         check("person has link arrays", isinstance(person0.get("spouseIds"), list) and isinstance(person0.get("parentIds"), list))
 
         # --- person CRUD ---
-        s, created = c.req("POST", "/api/people", {"name": "Test Kişi", "gender": 1})
-        check("create person -> 201", s == 201 and created["name"] == "Test Kişi", (s, created))
+        s, created = c.req("POST", "/api/people", {"name": "Test Person", "gender": 1})
+        check("create person -> 201", s == 201 and created["name"] == "Test Person", (s, created))
         new_id = created["id"]
+
+        s, tr = c.req("POST", "/api/people", {"name": "Şükrü İğdeli", "surname": "Çağlayan Öztürk", "birthplace": "Iğdır"})
+        check("Turkish characters round-trip", s == 201 and tr["name"] == "Şükrü İğdeli"
+              and tr.get("surname") == "Çağlayan Öztürk"
+              and tr.get("birthplace") == "Iğdır", (s, tr))
+        c.req("DELETE", f"/api/people/{tr['id']}")
 
         s, tree2 = c.req("GET", "/api/tree")
         check("new person id is unique + max+1", new_id == max(p["id"] for p in tree["people"]) + 1, new_id)
 
-        s, updated = c.req("PATCH", f"/api/people/{new_id}", {"name": "Test Kişi 2", "note": "not"})
-        check("update person -> 200", s == 200 and updated["name"] == "Test Kişi 2", (s, updated))
+        s, updated = c.req("PATCH", f"/api/people/{new_id}", {"name": "Test Person 2", "note": "a note"})
+        check("update person -> 200", s == 200 and updated["name"] == "Test Person 2", (s, updated))
 
         s, updated = c.req("PATCH", f"/api/people/{new_id}", {"parentIds": [person0["id"]]})
         check("set parent -> 200", s == 200 and updated["parentIds"] == [person0["id"]], (s, updated))
@@ -147,7 +153,7 @@ def main():
         check("clear spouse -> 200", s == 200 and spoused["spouseIds"] == [], (s, spoused))
 
         # --- root CRUD ---
-        s, root = c.req("POST", "/api/roots", {"title": "TEST KÖK", "generation": 2, "memberIds": [new_id]})
+        s, root = c.req("POST", "/api/roots", {"title": "TEST ROOT", "generation": 2, "memberIds": [new_id]})
         check("create root -> 201", s == 201 and root["memberIds"] == [new_id], (s, root))
         rid = root["id"]
         s, root = c.req("PATCH", f"/api/roots/{rid}", {"generation": 3})
@@ -180,7 +186,7 @@ def main():
         s, _ = ec.req("POST", "/api/login", {"username": "editor2", "password": "editorpass2"})
         s, d = ec.req("GET", "/api/users")
         check("editor forbidden from /api/users -> 403", s == 403, (s, d))
-        s, d = ec.req("POST", "/api/people", {"name": "Editor Ekledi"})
+        s, d = ec.req("POST", "/api/people", {"name": "Added By Editor"})
         check("editor can create person -> 201", s == 201, (s, d))
 
         # --- a password change logs out every other session ---

@@ -37,7 +37,7 @@ _PARENTS = [  # (childId, parent1Id, parent2Id)
     (9, 4, 8), (10, 4, 8),
     (12, 6, 11),
 ]
-_ROOTS = [(1, "YILMAZ AİLESİ", 1), (2, "DEMİR AİLESİ", 1)]
+_ROOTS = [(1, "YILMAZ FAMILY", 1), (2, "DEMİR FAMILY", 1)]
 _ROOT_MEMBERS = [(1, 1), (1, 2), (2, 14), (2, 15)]  # (rootId, personId)
 
 

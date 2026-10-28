@@ -42,10 +42,10 @@ export function initialsOf(name, surname) {
     return s || '?';
 }
 
-// The ♂ / ♀ glyph and Turkish label for a gender, or null when unknown.
+// The ♂ / ♀ glyph and label for a gender, or null when unknown.
 export function genderGlyph(gender) {
-    if (gender === 'Male') return { sym: '♂', label: 'Erkek' };
-    if (gender === 'Female') return { sym: '♀', label: 'Kadın' };
+    if (gender === 'Male') return { sym: '♂', label: 'Male' };
+    if (gender === 'Female') return { sym: '♀', label: 'Female' };
     return null;
 }
 
@@ -81,31 +81,31 @@ export function triggerDownload(blob, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 20000);
 }
 
-// 20 birbirinden tamamen farklı ve zıt renk. Renk çemberi 18° adımlarla
-// taranır, sonra 7 adımlık kaydırmayla sıralanır; böylece ardışık
-// jenerasyonlar ~126° uzak (asla benzemez). Modulo (%) ile 20'den derin
-// ağaçlarda başa sararak sınırsız derinlik destekler. Bu tonlar, çizgi
-// renklerinden (tree-model.js) daha parlak/açık tutulur ki jenerasyon
-// dolgusu ile bağlantı çizgisi karışmasın.
+// 20 clearly distinct, contrasting colors. The hue wheel is sampled in 18°
+// steps, then ordered with a stride of 7, so consecutive generations are
+// ~126° apart (never look alike). Indexing with modulo (%) wraps around for
+// trees deeper than 20, so depth is unlimited. These tones are kept
+// brighter/lighter than the line colors (tree-model.js) so a generation's
+// fill never blends with the connector lines.
 export const generationColors = [
-    { hex: '#e04429', rgba: 'rgba(224, 68, 41, 0.3)' },    // 1: Kırmızı-Turuncu
-    { hex: '#29e057', rgba: 'rgba(41, 224, 87, 0.3)' },    // 2: Yeşil
-    { hex: '#6929e0', rgba: 'rgba(105, 41, 224, 0.3)' },   // 3: Menekşe
-    { hex: '#e07b29', rgba: 'rgba(224, 123, 41, 0.3)' },   // 4: Turuncu
-    { hex: '#29e08e', rgba: 'rgba(41, 224, 142, 0.3)' },   // 5: Zümrüt
-    { hex: '#a029e0', rgba: 'rgba(160, 41, 224, 0.3)' },   // 6: Mor
-    { hex: '#e0b329', rgba: 'rgba(224, 179, 41, 0.3)' },   // 7: Kehribar
-    { hex: '#29e0c5', rgba: 'rgba(41, 224, 197, 0.3)' },   // 8: Turkuaz
-    { hex: '#d729e0', rgba: 'rgba(215, 41, 224, 0.3)' },   // 9: Macenta
-    { hex: '#d7e029', rgba: 'rgba(215, 224, 41, 0.3)' },   // 10: Limon Sarısı
-    { hex: '#29c5e0', rgba: 'rgba(41, 197, 224, 0.3)' },   // 11: Camgöbeği
-    { hex: '#e029b3', rgba: 'rgba(224, 41, 179, 0.3)' },   // 12: Pembe
-    { hex: '#a0e029', rgba: 'rgba(160, 224, 41, 0.3)' },   // 13: Limon Yeşili
-    { hex: '#298ee0', rgba: 'rgba(41, 142, 224, 0.3)' },   // 14: Mavi
-    { hex: '#e0297b', rgba: 'rgba(224, 41, 123, 0.3)' },   // 15: Gül Rengi
-    { hex: '#69e029', rgba: 'rgba(105, 224, 41, 0.3)' },   // 16: Ç. Yeşil
-    { hex: '#2957e0', rgba: 'rgba(41, 87, 224, 0.3)' },    // 17: Çivit Mavisi
-    { hex: '#e02944', rgba: 'rgba(224, 41, 68, 0.3)' },    // 18: Kırmızı
-    { hex: '#32e029', rgba: 'rgba(50, 224, 41, 0.3)' },    // 19: Çim Yeşili
-    { hex: '#3229e0', rgba: 'rgba(50, 41, 224, 0.3)' }     // 20: Lacivert
+    { hex: '#e04429', rgba: 'rgba(224, 68, 41, 0.3)' },    // 1: Red-Orange
+    { hex: '#29e057', rgba: 'rgba(41, 224, 87, 0.3)' },    // 2: Green
+    { hex: '#6929e0', rgba: 'rgba(105, 41, 224, 0.3)' },   // 3: Violet
+    { hex: '#e07b29', rgba: 'rgba(224, 123, 41, 0.3)' },   // 4: Orange
+    { hex: '#29e08e', rgba: 'rgba(41, 224, 142, 0.3)' },   // 5: Emerald
+    { hex: '#a029e0', rgba: 'rgba(160, 41, 224, 0.3)' },   // 6: Purple
+    { hex: '#e0b329', rgba: 'rgba(224, 179, 41, 0.3)' },   // 7: Amber
+    { hex: '#29e0c5', rgba: 'rgba(41, 224, 197, 0.3)' },   // 8: Turquoise
+    { hex: '#d729e0', rgba: 'rgba(215, 41, 224, 0.3)' },   // 9: Magenta
+    { hex: '#d7e029', rgba: 'rgba(215, 224, 41, 0.3)' },   // 10: Lemon Yellow
+    { hex: '#29c5e0', rgba: 'rgba(41, 197, 224, 0.3)' },   // 11: Cyan
+    { hex: '#e029b3', rgba: 'rgba(224, 41, 179, 0.3)' },   // 12: Pink
+    { hex: '#a0e029', rgba: 'rgba(160, 224, 41, 0.3)' },   // 13: Lime Green
+    { hex: '#298ee0', rgba: 'rgba(41, 142, 224, 0.3)' },   // 14: Blue
+    { hex: '#e0297b', rgba: 'rgba(224, 41, 123, 0.3)' },   // 15: Rose
+    { hex: '#69e029', rgba: 'rgba(105, 224, 41, 0.3)' },   // 16: Grass Green
+    { hex: '#2957e0', rgba: 'rgba(41, 87, 224, 0.3)' },    // 17: Indigo
+    { hex: '#e02944', rgba: 'rgba(224, 41, 68, 0.3)' },    // 18: Red
+    { hex: '#32e029', rgba: 'rgba(50, 224, 41, 0.3)' },    // 19: Lawn Green
+    { hex: '#3229e0', rgba: 'rgba(50, 41, 224, 0.3)' }     // 20: Navy
 ];

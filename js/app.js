@@ -105,11 +105,11 @@ import { startTour } from './tour.js';
         // State
         let currentZoom = 1;
         let isFocusMode = false;
-        // Focus modunda en son merkeze alınan kişinin id'si — focus'tan
-        // çıkınca o kişiye geri kaydırmak için kullanılır (panel kapatılıp
-        // .highlighted sınıfı silinse bile çalışır).
+        // Id of the person last centered in focus mode — used to scroll back
+        // to them when leaving focus (works even if the panel was closed and
+        // the .highlighted class is gone).
         let lastFocusSelfId = null;
-        // "İki kişi arası bağ" feature: null | 'picking' (choosing the two
+        // Relationship-path feature: null | 'picking' (choosing the two
         // people) | 'showing' (the connecting path is rendered focus-style).
         let relationshipMode = null;
         let relPick1 = null;
@@ -152,8 +152,7 @@ import { startTour } from './tour.js';
         // even once the 50-color palette wraps.
         let personRootDash = new Map();
         // Inline-childless-spouse id -> the id of the main person they're
-        // attached to. When someone has more than one spouse (e.g. Abdülhakim
-        // with Sıdıka and Nezihe), every marriage line in that row anchors to
+        // attached to. When someone has more than one spouse, every marriage line in that row anchors to
         // the SAME person's own box center, so the whole row reads as one flat
         // line instead of stair-stepping to each spouse's own (differently
         // sized) card.
@@ -165,7 +164,7 @@ import { startTour } from './tour.js';
         // --- Build/version stamp in the sidebar footer ---
         // /version.json is rewritten by Jenkins on every deploy (see the
         // "Stamp version" stage in the Jenkinsfile). The copy committed to the
-        // repo has build "dev", which just shows "yerel geliştirme".
+        // repo has build "dev", which shows a "local development" label.
         (async () => {
             const el = document.getElementById('app-version');
             if (!el) return;
@@ -173,7 +172,7 @@ import { startTour } from './tour.js';
                 const res = await fetch('version.json', { cache: 'no-store' });
                 if (!res.ok) throw new Error(res.status);
                 const v = await res.json();
-                el.textContent = v.build === 'dev' ? 'yerel geliştirme' : `sürüm ${v.build}`;
+                el.textContent = v.build === 'dev' ? 'local development' : `version ${v.build}`;
             } catch {
                 el.textContent = '';
             }
@@ -368,7 +367,8 @@ import { startTour } from './tour.js';
 
             const persons = collectAllPersons(roots);
             const peopleCountEl = document.getElementById('people-count');
-            if (peopleCountEl) peopleCountEl.textContent = `${persons.filter(({ person }) => !person._isRoot).length} kişi`;
+            const peopleCount = persons.filter(({ person }) => !person._isRoot).length;
+            if (peopleCountEl) peopleCountEl.textContent = `${peopleCount} ${peopleCount === 1 ? 'person' : 'people'}`;
             let html = '';
             persons.forEach(({ person, isSpouse }) => { html += generateCardHTML(person, isSpouse); });
             treeRoot.innerHTML = html;
@@ -660,7 +660,7 @@ import { startTour } from './tour.js';
             // When one of this pair is recorded as an inline spouse of the
             // other (see spouseAnchorId), anchor the marriage line to the
             // anchor's own header center for both endpoints, so someone with
-            // multiple spouses (e.g. Abdülhakim with Sıdıka and Nezihe) gets
+            // multiple spouses gets
             // one flat line across the whole row instead of stair-stepping
             // to each spouse's own, differently-sized card. Falls back to
             // null (caller uses each side's own center) for the rarer case
@@ -671,8 +671,7 @@ import { startTour } from './tour.js';
                 return null;
             };
 
-            // Someone with 2+ inline spouses (e.g. Abdülhakim with Sıdıka and
-            // Nezihe) is laid out as one flat row of cards. Drawing
+            // Someone with 2+ inline spouses is laid out as one flat row of cards. Drawing
             // "anchor -> every spouse" would make the line to the farther
             // spouse retrace the exact same path as the line to the nearer
             // one (both start at the anchor, same Y), so the nearer spouse's
@@ -884,9 +883,9 @@ import { startTour } from './tour.js';
                 for (let i = 1; i <= maxGen; i++) {
                     const color = generationColors[(i - 1) % generationColors.length];
                     legendList.innerHTML += `
-                        <div class="flex items-center gap-2 p-1.5 -mx-1.5 rounded-md cursor-pointer hover:bg-slate-100 transition-colors legend-item" data-gen="${i}" title="Bu jenerasyondaki herkesi vurgula">
+                        <div class="flex items-center gap-2 p-1.5 -mx-1.5 rounded-md cursor-pointer hover:bg-slate-100 transition-colors legend-item" data-gen="${i}" title="Highlight everyone in this generation">
                             <div class="w-3 h-3 rounded-full flex-shrink-0 border border-slate-200 shadow-sm" style="background-color: ${color.hex}"></div>
-                            <span class="truncate">${i}. Nesil</span>
+                            <span class="truncate">Generation ${i}</span>
                         </div>`;
                 }
 
@@ -1145,7 +1144,7 @@ import { startTour } from './tour.js';
                 isFocusMode = !isFocusMode;
             }
 
-            // Leaving focus also tears down an active "İki kişi arası bağ"
+            // Leaving focus also tears down an active relationship-path
             // view (e.g. a search or "close details" click exits both).
             if (!isFocusMode && relationshipMode) resetRelationshipUI();
 
@@ -1223,9 +1222,9 @@ import { startTour } from './tour.js';
                     currentZoom = 1;
                     updateZoomStyle();
                     
-                    // Focus'tan çıkarken seçili kişiye kaydır. Panel kapatılarak
-                    // çıkıldıysa .highlighted sınıfı silinmiş olur; o durumda
-                    // en son merkeze alınan kişinin kaydedilen id'sine düş.
+                    // Scroll to the selected person when leaving focus. If focus was
+                    // left by closing the panel, .highlighted is already gone, so
+                    // fall back to the saved id of the last centered person.
                     const targetCard = document.querySelector('.tree-node-card.highlighted')
                         || (lastFocusSelfId != null
                             && document.querySelector(`.tree-node-card[data-id="${lastFocusSelfId}"]`));
@@ -1482,7 +1481,7 @@ import { startTour } from './tour.js';
 
         // --- Person Details: view / edit / save ---
 
-        // Renders the read-only "Kişi Detayları" panel content for one person
+        // Renders the read-only person details panel content for one person
         // ({name, id, photoUrl, attributes}, same shape as a card's data-details).
         function showPersonDetailsView(details) {
             currentDetailsPersonId = Number(details.id);
@@ -1539,13 +1538,13 @@ import { startTour } from './tour.js';
                     <div class="w-10 h-10 rotate-45 rounded-lg bg-slate-600 root-popup-diamond mb-3 mt-1"></div>
                     <div class="font-bold text-slate-900 text-sm leading-snug px-2">${escapeHTML(title)}</div>
                     <div class="inline-flex items-center gap-1.5 mt-1.5 text-[10px] font-semibold text-slate-500 bg-slate-100 rounded-full px-2.5 py-1">
-                        <span>Aile kökü</span><span>·</span><span>${escapeHTML(details.generation)}. jenerasyon</span>
+                        <span>Family root</span><span>·</span><span>Generation ${escapeHTML(details.generation)}</span>
                     </div>
                 </div>`;
             if (members.length) {
                 html += `<div class="text-left text-xs text-slate-600 flex flex-col gap-1">
                     <div class="flex items-center justify-between px-0.5 mb-1">
-                        <span class="font-semibold text-slate-400 text-[10px]">KİŞİLER</span>
+                        <span class="font-semibold text-slate-400 text-[10px]">PEOPLE</span>
                         <span class="font-mono text-slate-300 text-[10px]">${members.length}</span>
                     </div>`;
                 members.forEach(p => {
@@ -1558,7 +1557,7 @@ import { startTour } from './tour.js';
                 });
                 html += `</div>`;
             } else {
-                html += `<div class="text-[11px] text-slate-400 text-center">Henüz kişi bağlanmadı.</div>`;
+                html += `<div class="text-[11px] text-slate-400 text-center">No people linked yet.</div>`;
             }
 
             personDetailsContent.innerHTML = html;
@@ -1576,24 +1575,24 @@ import { startTour } from './tour.js';
             personDetailsContent.innerHTML = `
                 <div class="flex flex-col gap-2">
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Başlık</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Title</span>
                         <input type="text" id="edit-field-root-title" value="${escapeHTML(node.title || 'ROOT')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Jenerasyon</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Generation</span>
                         <input type="number" min="1" step="1" id="edit-field-root-gen" value="${node._generation || 1}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Kişiler</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">People</span>
                         <select id="edit-field-root-members" multiple size="6" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             ${buildPersonOptions(null, currentMemberIds)}
                         </select>
-                        <span class="text-[9px] text-slate-400">Ailenin en üstteki kişi(ler)i. Alt kuşaklar buradan sayılır.</span>
+                        <span class="text-[9px] text-slate-400">The family's topmost person(s). Later generations are counted from here.</span>
                     </label>
                     <div id="edit-form-error" class="text-[11px] text-red-500 hidden"></div>
                     <div class="flex gap-2 mt-1">
-                        <button id="btn-save-root" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Kaydet</button>
-                        <button id="btn-cancel-root" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">İptal</button>
+                        <button id="btn-save-root" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Save</button>
+                        <button id="btn-cancel-root" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Cancel</button>
                     </div>
                 </div>`;
 
@@ -1616,7 +1615,7 @@ import { startTour } from './tour.js';
             const genRaw = document.getElementById('edit-field-root-gen').value.trim();
             const generation = Number(genRaw);
             if (!Number.isInteger(generation) || generation < 1) {
-                showFormError('Jenerasyon 1 veya daha büyük bir tam sayı olmalıdır.');
+                showFormError('Generation must be a whole number of 1 or more.');
                 return;
             }
             const memberIds = Array.from(document.getElementById('edit-field-root-members').selectedOptions)
@@ -1624,7 +1623,7 @@ import { startTour } from './tour.js';
 
             const saveBtn = document.getElementById('btn-save-root');
             saveBtn.disabled = true;
-            saveBtn.textContent = 'Kaydediliyor...';
+            saveBtn.textContent = 'Saving...';
             try {
                 await updateRoot(rootDbId(node.id), { title, generation, memberIds });
 
@@ -1645,9 +1644,9 @@ import { startTour } from './tour.js';
                 if (updated) showRootDetailsView({ isRoot: true, id: updated.id, title: updated.title, generation: updated._generation });
                 else closeDetailsPanel();
             } catch (err) {
-                showFormError('Kaydetme başarısız: ' + err.message);
+                showFormError('Save failed: ' + err.message);
                 saveBtn.disabled = false;
-                saveBtn.textContent = 'Kaydet';
+                saveBtn.textContent = 'Save';
             }
         }
 
@@ -1679,7 +1678,7 @@ import { startTour } from './tour.js';
                 ? selectedId.filter(id => id != null).map(Number)
                 : (selectedId != null ? [Number(selectedId)] : []);
 
-            let html = `<option value="" ${selectedIds.length === 0 ? 'selected' : ''}>— Yok —</option>`;
+            let html = `<option value="" ${selectedIds.length === 0 ? 'selected' : ''}>— None —</option>`;
             unique.forEach(p => {
                 const label = `${p.name || ''} ${(p.attributes && p.attributes.surname) || ''}`.trim() || `#${p.id}`;
                 const isSelected = selectedIds.includes(Number(p.id));
@@ -1698,59 +1697,59 @@ import { startTour } from './tour.js';
             personDetailsContent.innerHTML = `
                 <div class="flex flex-col gap-2">
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ad</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Name</span>
                         <input type="text" id="edit-field-name" value="${escapeHTML(node.name || '')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Soyad</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Surname</span>
                         <input type="text" id="edit-field-surname" value="${escapeHTML(attrs.surname || '')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Cinsiyet</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Gender</span>
                         <select id="edit-field-gender" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
-                            <option value="" ${genderVal === '' ? 'selected' : ''}>Bilinmiyor</option>
-                            <option value="Male" ${genderVal === 'Male' ? 'selected' : ''}>Erkek</option>
-                            <option value="Female" ${genderVal === 'Female' ? 'selected' : ''}>Kadın</option>
+                            <option value="" ${genderVal === '' ? 'selected' : ''}>Unknown</option>
+                            <option value="Male" ${genderVal === 'Male' ? 'selected' : ''}>Male</option>
+                            <option value="Female" ${genderVal === 'Female' ? 'selected' : ''}>Female</option>
                         </select>
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Doğum Tarihi</span>
-                        <input type="text" id="edit-field-birthdate" value="${escapeHTML(attrs.birthdate || '')}" placeholder="GG.AA.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Date of birth</span>
+                        <input type="text" id="edit-field-birthdate" value="${escapeHTML(attrs.birthdate || '')}" placeholder="DD.MM.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Doğum Yeri</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Place of birth</span>
                         <input type="text" id="edit-field-birthplace" value="${escapeHTML(attrs.birthplace || '')}" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ölüm Tarihi</span>
-                        <input type="text" id="edit-field-dateofdeath" value="${escapeHTML(attrs.dateofdeath || '')}" placeholder="GG.AA.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Date of death</span>
+                        <input type="text" id="edit-field-dateofdeath" value="${escapeHTML(attrs.dateofdeath || '')}" placeholder="DD.MM.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Not</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Note</span>
                         <textarea id="edit-field-note" rows="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white resize-none">${escapeHTML(attrs.note || '')}</textarea>
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 1</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Parent 1</span>
                         <select id="edit-field-parent1" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             ${buildPersonOptions(node.id, parentIds[0])}
                         </select>
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 2</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Parent 2</span>
                         <select id="edit-field-parent2" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             ${buildPersonOptions(node.id, parentIds[1])}
                         </select>
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Eş</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Spouse</span>
                         <select id="edit-field-spouse" multiple size="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             ${buildPersonOptions(node.id, spouseIds)}
                         </select>
                     </label>
                     <div id="edit-form-error" class="text-[11px] text-red-500 hidden"></div>
                     <div class="flex gap-2 mt-1">
-                        <button id="btn-save-details" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Kaydet</button>
-                        <button id="btn-cancel-edit-details" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">İptal</button>
+                        <button id="btn-save-details" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Save</button>
+                        <button id="btn-cancel-edit-details" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Cancel</button>
                     </div>
                 </div>`;
 
@@ -1778,7 +1777,7 @@ import { startTour } from './tour.js';
 
             const name = document.getElementById('edit-field-name').value.trim();
             if (!name) {
-                showFormError('Ad boş olamaz.');
+                showFormError('Name cannot be empty.');
                 return;
             }
             const surname = document.getElementById('edit-field-surname').value.trim();
@@ -1794,7 +1793,7 @@ import { startTour } from './tour.js';
             const parent1Id = parent1Raw ? Number(parent1Raw) : null;
             const parent2Id = parent2Raw ? Number(parent2Raw) : null;
             if (parent1Id !== null && parent2Id !== null && parent1Id === parent2Id) {
-                showFormError('Ebeveyn 1 ve Ebeveyn 2 aynı kişi olamaz.');
+                showFormError('Parent 1 and Parent 2 cannot be the same person.');
                 return;
             }
             const parentIds = [parent1Id, parent2Id].filter(id => id !== null);
@@ -1807,7 +1806,7 @@ import { startTour } from './tour.js';
 
             const saveBtn = document.getElementById('btn-save-details');
             saveBtn.disabled = true;
-            saveBtn.textContent = 'Kaydediliyor...';
+            saveBtn.textContent = 'Saving...';
 
             try {
                 await updatePerson(node.id, {
@@ -1845,9 +1844,9 @@ import { startTour } from './tour.js';
                     showPersonDetailsView({ name: updatedNode.name, id: updatedNode.id, photoUrl: updatedNode.photoUrl, attributes: updatedNode.attributes });
                 }
             } catch (err) {
-                showFormError('Kaydetme başarısız: ' + err.message);
+                showFormError('Save failed: ' + err.message);
                 saveBtn.disabled = false;
-                saveBtn.textContent = 'Kaydet';
+                saveBtn.textContent = 'Save';
             }
         }
 
@@ -1888,8 +1887,8 @@ import { startTour } from './tour.js';
             const highlightState = captureHighlightState();
             if (isFocusMode) {
                 const visibleIds = new Set(highlightState.keys());
-                // Focus modunda açık olan / yeni eklenen kişiyi de görünür tut,
-                // yoksa düzenleme sonrası soy hattından düşebilir.
+                // In focus mode, keep the open / newly added person visible too,
+                // otherwise they could drop out of the bloodline after an edit.
                 if (currentDetailsPersonId != null) visibleIds.add(Number(currentDetailsPersonId));
                 await renderTreeFromHierarchy(pruneForFocus(originalRoots, visibleIds));
             } else {
@@ -1911,59 +1910,59 @@ import { startTour } from './tour.js';
             personDetailsContent.innerHTML = `
                 <div class="flex flex-col gap-2">
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ad</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Name</span>
                         <input type="text" id="edit-field-name" value="" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Soyad</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Surname</span>
                         <input type="text" id="edit-field-surname" value="" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Cinsiyet</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Gender</span>
                         <select id="edit-field-gender" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
-                            <option value="" selected>Bilinmiyor</option>
-                            <option value="Male">Erkek</option>
-                            <option value="Female">Kadın</option>
+                            <option value="" selected>Unknown</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
                         </select>
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Doğum Tarihi</span>
-                        <input type="text" id="edit-field-birthdate" value="" placeholder="GG.AA.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Date of birth</span>
+                        <input type="text" id="edit-field-birthdate" value="" placeholder="DD.MM.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Doğum Yeri</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Place of birth</span>
                         <input type="text" id="edit-field-birthplace" value="" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ölüm Tarihi</span>
-                        <input type="text" id="edit-field-dateofdeath" value="" placeholder="GG.AA.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Date of death</span>
+                        <input type="text" id="edit-field-dateofdeath" value="" placeholder="DD.MM.YYYY" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Not</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Note</span>
                         <textarea id="edit-field-note" rows="3" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white resize-none"></textarea>
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 1</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Parent 1</span>
                         <select id="edit-field-parent1" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             ${buildPersonOptions(-1, null)}
                         </select>
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Ebeveyn 2</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Parent 2</span>
                         <select id="edit-field-parent2" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             ${buildPersonOptions(-1, null)}
                         </select>
                     </label>
                     <label class="flex flex-col gap-0.5">
-                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Eş</span>
+                        <span class="text-[10px] font-semibold text-slate-500 uppercase">Spouse</span>
                         <select id="edit-field-spouse" class="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             ${buildPersonOptions(-1, null)}
                         </select>
                     </label>
                     <div id="edit-form-error" class="text-[11px] text-red-500 hidden"></div>
                     <div class="flex gap-2 mt-1">
-                        <button id="btn-save-details" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Ekle</button>
-                        <button id="btn-cancel-edit-details" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">İptal</button>
+                        <button id="btn-save-details" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Add</button>
+                        <button id="btn-cancel-edit-details" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold py-1.5 rounded-md transition-colors cursor-pointer">Cancel</button>
                     </div>
                 </div>`;
 
@@ -1990,7 +1989,7 @@ import { startTour } from './tour.js';
 
             const name = document.getElementById('edit-field-name').value.trim();
             if (!name) {
-                showFormError('Ad boş olamaz.');
+                showFormError('Name cannot be empty.');
                 return;
             }
             const surname = document.getElementById('edit-field-surname').value.trim();
@@ -2006,7 +2005,7 @@ import { startTour } from './tour.js';
             const parent1Id = parent1Raw ? Number(parent1Raw) : null;
             const parent2Id = parent2Raw ? Number(parent2Raw) : null;
             if (parent1Id !== null && parent2Id !== null && parent1Id === parent2Id) {
-                showFormError('Ebeveyn 1 ve Ebeveyn 2 aynı kişi olamaz.');
+                showFormError('Parent 1 and Parent 2 cannot be the same person.');
                 return;
             }
             const parentIds = [parent1Id, parent2Id].filter(id => id !== null);
@@ -2016,7 +2015,7 @@ import { startTour } from './tour.js';
 
             const saveBtn = document.getElementById('btn-save-details');
             saveBtn.disabled = true;
-            saveBtn.textContent = 'Ekleniyor...';
+            saveBtn.textContent = 'Adding...';
 
             try {
                 const created = await createPerson({
@@ -2040,9 +2039,9 @@ import { startTour } from './tour.js';
                     closeDetailsPanel();
                 }
             } catch (err) {
-                showFormError('Ekleme başarısız: ' + err.message);
+                showFormError('Adding failed: ' + err.message);
                 saveBtn.disabled = false;
-                saveBtn.textContent = 'Ekle';
+                saveBtn.textContent = 'Add';
             }
         }
 
@@ -2066,7 +2065,7 @@ import { startTour } from './tour.js';
                     }
                 } catch (err) {
                     errorOverlay.classList.remove('hidden');
-                    errorText.textContent = 'Kök eklenemedi: ' + err.message;
+                    errorText.textContent = 'Could not add the root: ' + err.message;
                 } finally {
                     btnAddRoot.disabled = false;
                 }
@@ -2095,7 +2094,7 @@ import { startTour } from './tour.js';
 
             const originalBtnHTML = btnExportPng.innerHTML;
             btnExportPng.disabled = true;
-            btnExportPng.innerHTML = '<i data-lucide="loader" class="w-5 h-5 animate-spin"></i><span>Hazırlanıyor…</span>';
+            btnExportPng.innerHTML = '<i data-lucide="loader" class="w-5 h-5 animate-spin"></i><span>Preparing…</span>';
             createIcons();
 
             // Snapshot view state, then normalize to scale 1 so the connector
@@ -2116,7 +2115,7 @@ import { startTour } from './tour.js';
                 const now = new Date();
                 const stamp = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}`
                     + `-${p2(now.getHours())}-${p2(now.getMinutes())}-${p2(now.getSeconds())}`;
-                const baseName = `soyagaci-${stamp}-${cards.length}kisi`;
+                const baseName = `familytree-${stamp}-${cards.length}people`;
 
                 // Tight content bounding box — the tree canvas has large empty
                 // margins (a lone gen-1 card way off-centre, etc.), and an image
@@ -2170,7 +2169,7 @@ ${cardsInner}
 
                 triggerDownload(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), `${baseName}.svg`);
             } catch (err) {
-                errorText.textContent = 'Görüntü oluşturulamadı: ' + err.message;
+                errorText.textContent = 'Could not create the image: ' + err.message;
                 errorOverlay.classList.remove('hidden');
             } finally {
                 currentZoom = prevZoom;
@@ -2198,8 +2197,8 @@ ${cardsInner}
                     ? (isRoot ? (node.title || 'ROOT') : `${node.name || ''} ${(node.attributes && node.attributes.surname) || ''}`.trim())
                     : `#${currentDetailsPersonId}`;
                 const message = isRoot
-                    ? `"${label}" kökünü silmek istediğinize emin misiniz? Altındaki kişiler yeniden kendiliğinden kök olur.`
-                    : `"${label}" kişisini silmek istediğinize emin misiniz? Bu işlem, bu kişiyi ebeveyn/eş olarak referans alan bağlantıları da kaldırır.`;
+                    ? `Are you sure you want to delete the root "${label}"? The people under it become top-level again on their own.`
+                    : `Are you sure you want to delete "${label}"? This also removes every link that references this person as a parent or spouse.`;
                 if (!window.confirm(message)) {
                     return;
                 }
@@ -2213,7 +2212,7 @@ ${cardsInner}
                     closeDetailsPanel();
                 } catch (err) {
                     errorOverlay.classList.remove('hidden');
-                    errorText.textContent = 'Silme başarısız: ' + err.message;
+                    errorText.textContent = 'Delete failed: ' + err.message;
                 } finally {
                     btnDeleteDetails.disabled = false;
                 }
@@ -2225,17 +2224,17 @@ ${cardsInner}
             const card = e.target.closest('.tree-node-card');
             if (!card) return;
 
-            // While picking the two people for "İki kişi arası bağ", a card
+            // While picking the two people for the relationship path, a card
             // click records a pick instead of triggering the bloodline view.
             if (relationshipMode === 'picking') {
                 handleRelationshipPick(card);
                 return;
             }
 
-            // Kişi "focus" (soy hattı) modunda tüm etkileşimler açık kalır:
-            // kart tıklama detay panelini açar, vurguyu günceller, düzenleme/
-            // ekleme/silme çalışır. Sadece salt-okunur "İki kişi arası bağ"
-            // sonuç görünümü etkileşimleri kapatır.
+            // Everything stays interactive in person focus (bloodline) mode: a
+            // card click opens the details panel and updates the highlight, and
+            // edit/add/delete work. Only the read-only relationship-path result
+            // view disables interaction.
             if (isFocusMode && relationshipMode === 'showing') return;
 
             const isAlreadyHighlighted = card.classList.contains('highlighted');
@@ -2247,7 +2246,7 @@ ${cardsInner}
                 el.style.removeProperty('--highlight-shadow');
             });
             
-            // Menüdeki (legend) aktif seçimi de temizle
+            // Also clear the active legend selection
             document.querySelectorAll('.legend-item').forEach(el => {
                 el.classList.remove('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
             });
@@ -2386,10 +2385,10 @@ ${cardsInner}
 
         // Close Person Details Panel
         btnCloseDetails.addEventListener('click', async () => {
-            // Paneli kapatmak, açık olan her türlü focus görünümünden de çıkarır
-            // (salt-okunur bağ görünümü veya düz kişi soy-hattı focus modu).
-            // Önce focus'tan çık (tam ağacı yeniden render eder) ki aşağıdaki
-            // vurgu temizliği son render'a uygulansın.
+            // Closing the panel also exits any open focus view (the read-only
+            // relationship-path view or plain bloodline focus). Exit focus first
+            // (it re-renders the full tree) so the highlight cleanup below
+            // applies to the final render.
             if (isFocusMode) await toggleFocusMode(false);
 
             document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
@@ -2408,7 +2407,7 @@ ${cardsInner}
             if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         });
 
-        // Renk (Legend) listesinden jenerasyon seçilince tüm grubu vurgulama
+        // Picking a generation in the color legend highlights that whole group
         legendList.addEventListener('click', (e) => {
             if (isFocusMode && relationshipMode === 'showing') return;
             
@@ -2418,7 +2417,7 @@ ${cardsInner}
             const targetGen = item.getAttribute('data-gen');
             const isActive = item.classList.contains('active-legend');
             
-            // Hem ağaçtaki hem de menüdeki mevcut vurguları temizle
+            // Clear existing highlights in both the tree and the legend
             document.querySelectorAll('.tree-node-card.highlighted, .tree-node-card.highlighted-gen, .tree-node-card.highlighted-spouse').forEach(el => {
                 el.classList.remove('highlighted', 'highlighted-gen', 'highlighted-spouse');
                 el.style.removeProperty('--highlight-color');
@@ -2430,7 +2429,7 @@ ${cardsInner}
             
             hidePersonPanel();
 
-            // Eğer daha önceden aktif değilse, listeyi aktif yap ve ilgili jenerasyonu vurgula
+            // If it wasn't active yet, activate the item and highlight its generation
             if (!isActive) {
                 item.classList.add('active-legend', 'bg-slate-100', 'font-semibold', 'text-slate-900');
                 
@@ -2449,7 +2448,7 @@ ${cardsInner}
             if (typeof drawCrossTreeLinks === 'function') requestAnimationFrame(drawCrossTreeLinks);
         });
 
-        // --- "İki kişi arası bağ" (relationship path between two people) ---
+        // --- Relationship path between two people ---
         // Pick two people from the tree (search + generation legend stay usable
         // for locating them), then render only the chain of relatives that
         // connects them, in the same focus-mode style as the bloodline view.
@@ -2499,7 +2498,7 @@ ${cardsInner}
         function personLabel(id) {
             const n = findPersonNode(originalRoots, Number(id));
             if (!n) return `#${id}`;
-            if (n._isRoot) return n.title || 'KÖK';
+            if (n._isRoot) return n.title || 'ROOT';
             return `${n.name || ''} ${(n.attributes && n.attributes.surname) || ''}`.trim() || `#${id}`;
         }
 
@@ -2564,13 +2563,13 @@ ${cardsInner}
             if (relPick1 === null) {
                 relPick1 = id;
                 markPick(card, 0);
-                relationshipInstr.textContent = `1. kişi: ${personLabel(id)}. Şimdi 2. kişiyi seçin.`;
+                relationshipInstr.textContent = `Person 1: ${personLabel(id)}. Now pick person 2.`;
                 return;
             }
             if (id === relPick1) { // click the first pick again to undo it
                 relPick1 = null;
                 clearPickMarkers();
-                relationshipInstr.textContent = 'Ağaçtan 1. kişiyi seçin.';
+                relationshipInstr.textContent = 'Pick person 1 in the tree.';
                 return;
             }
 
@@ -2579,7 +2578,7 @@ ${cardsInner}
 
             const path = findRelationshipPath(relPick1, relPick2);
             if (!path) {
-                relationshipInstr.textContent = `${personLabel(relPick1)} ile ${personLabel(relPick2)} arasında bir bağ bulunamadı.`;
+                relationshipInstr.textContent = `No connection found between ${personLabel(relPick1)} and ${personLabel(relPick2)}.`;
                 relPick2 = null;
                 return;
             }
@@ -2635,9 +2634,9 @@ ${cardsInner}
 
             const people = ids.filter(x => x > 0);
             const ctxCount = [...contextIds].filter(x => x > 0).length;
-            relationshipInstr.innerHTML = `Bağ gösteriliyor · <b>${people.length} kişilik zincir</b>, ${ids.length - 1} adım`
-                + (ctxCount ? ` <span class="text-slate-400">(+${ctxCount} eş/çocuk)</span>` : '')
-                + `. Kapatmak için butona ya da "Kapat"a basın.`;
+            relationshipInstr.innerHTML = `Showing the connection · <b>chain of ${people.length} people</b>, ${ids.length - 1} ${ids.length - 1 === 1 ? 'step' : 'steps'}`
+                + (ctxCount ? ` <span class="text-slate-400">(+${ctxCount} spouses/children)</span>` : '')
+                + `. Press the button or "Close" to exit.`;
             relationshipChain.innerHTML = ids
                 .map((id, i) => {
                     const strong = i === 0 || i === ids.length - 1;
@@ -2668,7 +2667,7 @@ ${cardsInner}
             relationshipStatus.classList.add('flex');
             relationshipChain.classList.add('hidden');
             relationshipChain.classList.remove('flex');
-            relationshipInstr.textContent = 'Ağaçtan 1. kişiyi seçin. (Arama ve nesil seçimi de kullanılabilir.)';
+            relationshipInstr.textContent = 'Pick person 1 in the tree. (Search and generation selection work too.)';
         }
 
         async function exitRelationshipMode() {
@@ -2738,23 +2737,23 @@ ${cardsInner}
         // --- Search Logic ---
         // Scans the live DOM for cards matching the current search box value
         // and repopulates `searchResults` + the `.search-match` styling.
-        // Pulled out of performSearch so a tree re-render (focus mode, "İki
-        // kişi arası bağ", etc. all replace treeRoot's innerHTML wholesale)
+        // Pulled out of performSearch so a tree re-render (focus mode, the
+        // relationship path, etc. all replace treeRoot's innerHTML wholesale)
         // can rebuild the list against the *new* card elements instead of
         // leaving `searchResults` pointing at detached nodes — a detached
         // card's getBoundingClientRect() is all zeros, which used to send
         // scrollCardToCenter's math (and the view) sliding toward the
-        // top-left corner every time ileri/geri was pressed afterwards.
+        // top-left corner every time next/previous was pressed afterwards.
         function rebuildSearchMatches() {
             const rawQuery = searchInput.value.trim();
             const query = foldTurkish(rawQuery);
             // Split the query into individual keywords; every keyword must be
             // found somewhere in a person's fields for the card to match. This
-            // lets "ahmet yilmaz" match a person whose name is "Ahmet" and
-            // surname "Yılmaz" regardless of field order.
+            // lets "john smith" match a person whose name is "John" and
+            // surname "Smith" regardless of field order.
             const terms = query.split(/\s+/).filter(Boolean);
 
-            // Temizle butonunu göster/gizle
+            // Show/hide the clear button
             if (query.length > 0) {
                 btnSearchClear.classList.remove('hidden');
                 btnSearchClear.classList.add('flex');
@@ -2771,9 +2770,9 @@ ${cardsInner}
 
             if (!query) return;
 
-            // Focus modundayken arama, o an ağaçta gösterilen (pruned) kartlarla
-            // sınırlı kalır — .tree-node-card zaten sadece görünür kişileri
-            // içerir, bu yüzden focus modundan çıkmaya gerek yok.
+            // In focus mode the search is limited to the (pruned) cards currently
+            // shown — .tree-node-card only contains visible people anyway, so
+            // there's no need to leave focus mode.
             document.querySelectorAll('.tree-node-card').forEach(card => {
                 const detailsStr = card.getAttribute('data-details');
                 if (detailsStr) {
@@ -2862,7 +2861,7 @@ ${cardsInner}
             scrollCardToCenter(targetCard);
 
             // Trigger click simulation to show person details perfectly.
-            // Skipped while picking the two people for "İki kişi arası bağ" —
+            // Skipped while picking the two people for the relationship path —
             // there a click commits a pick, so let the user click deliberately
             // once search has scrolled the match into view.
             if (!targetCard.classList.contains('highlighted') && relationshipMode !== 'picking') {
@@ -2998,7 +2997,7 @@ ${cardsInner}
             currentUserBadge.textContent = `${user.username} · ${roleLabel}`;
             currentUserBadge.classList.toggle('cursor-pointer', currentUserPersonId != null);
             currentUserBadge.classList.toggle('hover:bg-slate-100', currentUserPersonId != null);
-            currentUserBadge.title = currentUserPersonId != null ? 'Kendi kartınıza gidin' : '';
+            currentUserBadge.title = currentUserPersonId != null ? 'Go to your own card' : '';
             applyRoleUI();
             showApp();
             await loadAndRenderTree();
@@ -3019,7 +3018,7 @@ ${cardsInner}
             e.preventDefault();
             loginError.classList.add('hidden');
             btnLoginSubmit.disabled = true;
-            btnLoginSubmit.textContent = 'Giriş yapılıyor...';
+            btnLoginSubmit.textContent = 'Logging in...';
             try {
                 const user = await login(loginUsername.value.trim(), loginPassword.value);
                 await onAuthenticated(user, { fresh: true });
@@ -3028,7 +3027,7 @@ ${cardsInner}
                 loginError.classList.remove('hidden');
             } finally {
                 btnLoginSubmit.disabled = false;
-                btnLoginSubmit.textContent = 'Giriş Yap';
+                btnLoginSubmit.textContent = 'Log in';
             }
         });
 
@@ -3066,12 +3065,12 @@ ${cardsInner}
             const nextPassword = changePasswordNew.value;
             const confirmPassword = changePasswordConfirm.value;
             if (nextPassword.length < 8) {
-                changePasswordError.textContent = 'Yeni şifre en az 8 karakter olmalıdır.';
+                changePasswordError.textContent = 'The new password must be at least 8 characters.';
                 changePasswordError.classList.remove('hidden');
                 return;
             }
             if (nextPassword !== confirmPassword) {
-                changePasswordError.textContent = 'Yeni şifreler eşleşmiyor.';
+                changePasswordError.textContent = 'The new passwords don\'t match.';
                 changePasswordError.classList.remove('hidden');
                 return;
             }
@@ -3089,7 +3088,7 @@ ${cardsInner}
             }
         });
 
-        // --- Admin panel: user list, role changes, soyağacı kişisi bağlama ---
+        // --- Admin panel: user list, role changes, linking accounts to people ---
 
         function populateAdminPersonSelect(selectEl, selectedId) {
             selectEl.innerHTML = buildPersonOptions(null, selectedId);
@@ -3109,31 +3108,31 @@ ${cardsInner}
                     <div class="flex items-center justify-between gap-2">
                         <span class="font-medium text-slate-800 truncate">
                             ${escapeHTML(u.username)}
-                            ${isSelf ? '<span class="font-normal text-[10px] text-blue-600">(Siz)</span>' : ''}
+                            ${isSelf ? '<span class="font-normal text-[10px] text-blue-600">(you)</span>' : ''}
                         </span>
                         <div class="flex items-center gap-2 shrink-0">
-                            ${createdDate ? `<span class="text-[10px] text-slate-400" title="Hesap oluşturulma tarihi">${escapeHTML(createdDate)}</span>` : ''}
-                            <button class="btn-admin-delete p-1 rounded cursor-pointer ${(isSelf || isLastAdmin) ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:bg-red-50 hover:text-red-500'}" ${(isSelf || isLastAdmin) ? 'disabled' : ''} title="${isSelf ? 'Kendi hesabınızı silemezsiniz' : isLastAdmin ? 'Sistemdeki tek admin — önce başka birini admin yapmadan silinemez' : 'Kullanıcıyı sil'}"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                            ${createdDate ? `<span class="text-[10px] text-slate-400" title="Account creation date">${escapeHTML(createdDate)}</span>` : ''}
+                            <button class="btn-admin-delete p-1 rounded cursor-pointer ${(isSelf || isLastAdmin) ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:bg-red-50 hover:text-red-500'}" ${(isSelf || isLastAdmin) ? 'disabled' : ''} title="${isSelf ? 'You can\'t delete your own account' : isLastAdmin ? 'The only admin — make someone else an admin before deleting this one' : 'Delete user'}"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
                         <label class="flex flex-col gap-0.5">
-                            <span class="text-[9px] font-semibold text-slate-400 uppercase">Rol</span>
-                            <select class="admin-role-select border border-slate-300 rounded-md px-1.5 py-1 text-xs bg-white text-slate-800 outline-none" ${isLastAdmin ? 'disabled title="Sistemdeki tek admin — rolü değiştirilemez"' : ''}>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase">Role</span>
+                            <select class="admin-role-select border border-slate-300 rounded-md px-1.5 py-1 text-xs bg-white text-slate-800 outline-none" ${isLastAdmin ? 'disabled title="The only admin — the role cannot be changed"' : ''}>
                                 <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>Viewer</option>
                                 <option value="editor" ${u.role === 'editor' ? 'selected' : ''}>Editor</option>
                                 <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
                             </select>
                         </label>
                         <label class="flex-1 min-w-0 flex flex-col gap-0.5">
-                            <span class="text-[9px] font-semibold text-slate-400 uppercase">Soyağacındaki Kişi</span>
+                            <span class="text-[9px] font-semibold text-slate-400 uppercase">Person in the tree</span>
                             <select class="admin-person-select w-full border border-slate-300 rounded-md px-1.5 py-1 text-xs bg-white text-slate-800 outline-none"></select>
                         </label>
                     </div>
-                    <button type="button" class="btn-admin-reset-password self-start text-[10px] text-blue-600 hover:underline cursor-pointer">Şifre sıfırla</button>
+                    <button type="button" class="btn-admin-reset-password self-start text-[10px] text-blue-600 hover:underline cursor-pointer">Reset password</button>
                     <div class="admin-reset-password-box hidden flex gap-2">
-                        <input type="password" class="admin-reset-password-input flex-1 min-w-0 border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white text-slate-800" placeholder="Yeni şifre (en az 8 karakter)">
-                        <button type="button" class="btn-admin-reset-password-save bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 rounded-md cursor-pointer shrink-0">Kaydet</button>
+                        <input type="password" class="admin-reset-password-input flex-1 min-w-0 border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white text-slate-800" placeholder="New password (min. 8 characters)">
+                        <button type="button" class="btn-admin-reset-password-save bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 rounded-md cursor-pointer shrink-0">Save</button>
                     </div>
                     <div class="admin-row-error text-[10px] text-red-500 hidden"></div>
                 `;
@@ -3152,7 +3151,7 @@ ${cardsInner}
                 row.querySelector('.btn-admin-reset-password-save').addEventListener('click', async () => {
                     const newPassword = resetInput.value;
                     if (newPassword.length < 8) {
-                        showRowError('Şifre en az 8 karakter olmalıdır.');
+                        showRowError('The password must be at least 8 characters.');
                         return;
                     }
                     try {
@@ -3186,7 +3185,7 @@ ${cardsInner}
                     }
                 });
                 row.querySelector('.btn-admin-delete').addEventListener('click', async () => {
-                    if (!confirm(`"${u.username}" kullanıcısını silmek istediğinize emin misiniz?`)) return;
+                    if (!confirm(`Are you sure you want to delete the user "${u.username}"?`)) return;
                     try {
                         await deleteUser(u.id);
                         await renderAdminUserList();

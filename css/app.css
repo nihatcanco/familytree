@@ -364,7 +364,7 @@ img, video { max-width: 100%; height: auto; }
     border-color: var(--highlight-color, #94a3b8);
 }
 
-/* "İki kişi arası bağ" — the two people being picked for the relationship
+/* Relationship path — the two people being picked for the relationship
    path. Its own class so search / legend clears don't wipe the pick markers
    while the user is still choosing. */
 .tree-node-card.rel-pick:not(.root-node) {

@@ -121,12 +121,12 @@ def main():
             check("card is 220px wide (app.css applied)", abs(w - 220) < 2, w)
 
             count_txt = page.text_content("#people-count")
-            check("people count shown", "kişi" in (count_txt or ""), count_txt)
+            check("people count shown", "people" in (count_txt or ""), count_txt)
 
-            # build/version stamp in the sidebar footer (dev copy -> "yerel ...")
+            # build/version stamp in the sidebar footer (dev copy -> "local development")
             page.wait_for_function("document.querySelector('#app-version').textContent.length > 0", timeout=3000)
             ver_txt = page.text_content("#app-version")
-            check("version stamp shown", "yerel" in (ver_txt or ""), ver_txt)
+            check("version stamp shown", "local development" in (ver_txt or ""), ver_txt)
 
             # click a card -> details panel opens
             page.click(".tree-node-card:not(.root-node)")
@@ -140,6 +140,13 @@ def main():
             page.wait_for_timeout(600)
             matches = page.eval_on_selector_all(".search-match", "e=>e.length")
             check("search finds matches", matches > 0, matches)
+            page.click("#btn-search-clear")
+
+            # Turkish letters fold: plain "yilmaz" matches the 8 seeded "Yılmaz" people
+            page.fill("#search-input", "yilmaz")
+            page.wait_for_timeout(600)
+            matches = page.eval_on_selector_all(".search-match:not(.root-node)", "e=>e.length")
+            check("search folds Turkish letters", matches == 8, matches)
             page.click("#btn-search-clear")
 
             # focus mode toggle
