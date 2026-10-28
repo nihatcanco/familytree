@@ -183,6 +183,34 @@ def main():
         s, d = ec.req("POST", "/api/people", {"name": "Editor Ekledi"})
         check("editor can create person -> 201", s == 201, (s, d))
 
+        # --- a password change logs out every other session ---
+        ec2 = Client(port)
+        ec2.req("POST", "/api/login", {"username": "editor2", "password": "editorpass2"})
+        s, d = ec.req("PATCH", "/api/me", {"currentPassword": "editorpass2", "password": "editorpass3"})
+        check("change own password -> 200", s == 200, (s, d))
+        s, _ = ec.req("GET", "/api/me")
+        check("own session survives own password change", s == 200, s)
+        s, _ = ec2.req("GET", "/api/me")
+        check("other session revoked by password change -> 401", s == 401, s)
+        s, d = c.req("PATCH", f"/api/users/{nu2['id']}", {"password": "adminreset1"})
+        check("admin password reset -> 200", s == 200, (s, d))
+        s, _ = ec.req("GET", "/api/me")
+        check("session revoked by admin password reset -> 401", s == 401, s)
+        s, _ = c.req("GET", "/api/me")
+        check("admin's own session survives the reset", s == 200, s)
+
+        # --- oversized / non-object bodies are refused ---
+        conn = http.client.HTTPConnection(HOST, port, timeout=5)
+        conn.putrequest("POST", "/api/login")
+        conn.putheader("Content-Length", str(50 * 1024 * 1024))
+        conn.endheaders()
+        r = conn.getresponse(); r.read(); conn.close()
+        check("oversized body rejected unread -> 400", r.status == 400, r.status)
+        check("security headers sent", r.getheader("X-Content-Type-Options") == "nosniff"
+              and r.getheader("X-Frame-Options") == "DENY", r.getheaders())
+        s, d = c.req("POST", "/api/people", ["not", "an", "object"])
+        check("non-object JSON body -> 400", s == 400, (s, d))
+
         # --- delete the test person, verify cascade ---
         s, d = c.req("DELETE", f"/api/people/{new_id}")
         check("delete person -> 200", s == 200, (s, d))
@@ -219,6 +247,9 @@ def main():
         check("path traversal blocked", s in (403, 404), s)
         s, body = c.req("GET", "/robots.txt")
         check("robots.txt served", s == 200 and b"Disallow" in body, s)
+        # the background texture is vendored so the app works with no internet
+        s, body = c.req("GET", "/css/cubes.png")
+        check("css/cubes.png served locally", s == 200 and body[:4] == b"\x89PNG", s)
         # allowlist, not just traversal blocking: files that genuinely sit
         # under ROOT (server.py, schema.sql) must still be unreachable
         s, d = c.req("GET", "/server.py")

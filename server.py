@@ -23,6 +23,7 @@ import secrets
 import sys
 import threading
 import time
+import traceback
 from contextlib import contextmanager
 from datetime import timedelta
 from http.cookies import SimpleCookie
@@ -71,6 +72,20 @@ _login_failures = {}
 _login_lock = threading.Lock()
 LOGIN_MAX_ATTEMPTS = 8
 LOGIN_WINDOW_SECONDS = 300
+
+# JSON request bodies are a handful of fields; anything bigger is refused
+# before it is read, so a bogus Content-Length can't make a worker thread
+# buffer gigabytes (/api/login takes a body without any session).
+MAX_BODY_BYTES = 1024 * 1024
+
+# Sent on every response: no MIME sniffing, no framing (clickjacking), and no
+# Referer leaking the app URL to anything it links to.
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Content-Security-Policy", "frame-ancestors 'none'"),
+    ("Referrer-Policy", "no-referrer"),
+)
 
 # People / Spouses / Parents ids are handed out by _next_id() (SELECT MAX(id)
 # then INSERT), a read-modify-write with no DB-side guard. This is a
@@ -175,6 +190,12 @@ def verify_password(password, stored):
     return hmac.compare_digest(actual, expected)
 
 
+# Checked against when the username doesn't exist, so a failed login costs the
+# same PBKDF2 time either way and response timing doesn't reveal which
+# usernames are real.
+_DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(16))
+
+
 def ensure_initial_admin():
     """On a fresh database, create the first admin account and print its
     one-time password to the console -- there is no other account yet that
@@ -221,6 +242,9 @@ def _clear_login_failures(ip):
 
 
 def create_session(conn, user_id):
+    # Expired rows are never read again; sweep them here so the table doesn't
+    # grow forever.
+    conn.execute("DELETE FROM Sessions WHERE expiresAt <= now()")
     token = secrets.token_urlsafe(32)
     conn.execute(
         "INSERT INTO Sessions (token, userId, expiresAt) VALUES (%s, %s, now() + %s)",
@@ -243,17 +267,28 @@ def get_session_user(conn, token):
     return dict(row) if row else None
 
 
+def revoke_sessions(conn, user_id, keep_token=None):
+    """Log user_id out everywhere except keep_token (the caller's own session,
+    if any) -- after a password change, a session opened with the old
+    password must not keep working."""
+    conn.execute(
+        "DELETE FROM Sessions WHERE userId = %s AND token IS DISTINCT FROM %s",
+        (user_id, keep_token),
+    )
+
+
 def login(username, password):
     username = str(username or "").strip()
     with db(write=True) as conn:
         row = conn.execute("SELECT * FROM Users WHERE lower(username) = lower(%s)", (username,)).fetchone()
-        if row is None or not verify_password(password or "", row["passwordhash"]):
+        stored = row["passwordhash"] if row else _DUMMY_PASSWORD_HASH
+        if not verify_password(password or "", stored) or row is None:
             raise ValueError("Kullanıcı adı veya şifre hatalı.")
         token = create_session(conn, row["id"])
         return token, _user_public(row)
 
 
-def change_own_password(user_id, current_password, new_password):
+def change_own_password(user_id, current_password, new_password, keep_token=None):
     if len(new_password or "") < 8:
         raise ValueError("Yeni şifre en az 8 karakter olmalıdır.")
     with db(write=True) as conn:
@@ -263,6 +298,7 @@ def change_own_password(user_id, current_password, new_password):
         if not verify_password(current_password or "", row["passwordhash"]):
             raise ValueError("Mevcut şifre yanlış.")
         conn.execute("UPDATE Users SET passwordHash = %s WHERE id = %s", (hash_password(new_password), user_id))
+        revoke_sessions(conn, user_id, keep_token)
 
 
 def _user_public(row):
@@ -326,7 +362,7 @@ def create_user(fields):
         return _user_public(conn.execute("SELECT * FROM Users WHERE id = %s", (new_id,)).fetchone())
 
 
-def update_user(user_id, fields):
+def update_user(user_id, fields, keep_token=None):
     with db(write=True) as conn:
         row = conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone()
         if row is None:
@@ -358,6 +394,7 @@ def update_user(user_id, fields):
             if len(password) < 8:
                 raise ValueError("Şifre en az 8 karakter olmalıdır.")
             conn.execute("UPDATE Users SET passwordHash = %s WHERE id = %s", (hash_password(password), user_id))
+            revoke_sessions(conn, user_id, keep_token)
 
         return _user_public(conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone())
 
@@ -714,15 +751,16 @@ def _build_session_cookie(token, max_age=SESSION_TTL_SECONDS):
 # Each JSON endpoint is a (regex, {method: (roles, handler)}) entry. `roles`
 # is None for "any logged-in user" or a set of allowed roles; handler is
 # called as handler(ctx) and returns (status, payload). ctx carries the
-# path-match groups, the parsed body, and the current user.
+# path-match groups, the parsed body, the current user and their session token.
 
 class _Ctx:
-    __slots__ = ("match", "body", "user")
+    __slots__ = ("match", "body", "user", "token")
 
-    def __init__(self, match, body, user):
+    def __init__(self, match, body, user, token):
         self.match = match
         self.body = body
         self.user = user
+        self.token = token
 
     def group(self, i):
         return int(self.match.group(i))
@@ -732,7 +770,7 @@ ROUTES = [
     (re.compile(r"/api/me"), {
         "GET": (None, lambda c: (200, c.user)),
         "PATCH": (None, lambda c: (
-            change_own_password(c.user["id"], c.body.get("currentPassword"), c.body.get("password"))
+            change_own_password(c.user["id"], c.body.get("currentPassword"), c.body.get("password"), c.token)
             or (200, {"success": True})
         )),
     }),
@@ -744,7 +782,7 @@ ROUTES = [
         "POST": (ADMIN_ONLY, lambda c: (201, create_user(c.body))),
     }),
     (re.compile(r"/api/users/(\d+)"), {
-        "PATCH": (ADMIN_ONLY, lambda c: (200, update_user(c.group(1), c.body))),
+        "PATCH": (ADMIN_ONLY, lambda c: (200, update_user(c.group(1), c.body, c.token))),
         "DELETE": (ADMIN_ONLY, lambda c: (delete_user(c.group(1), c.user["id"]) or (200, {"success": True}))),
     }),
     (re.compile(r"/api/people"), {
@@ -766,6 +804,16 @@ ROUTES = [
 
 class Handler(BaseHTTPRequestHandler):
     # -- low-level helpers -------------------------------------------------
+    def end_headers(self):
+        for name, value in SECURITY_HEADERS:
+            self.send_header(name, value)
+        super().end_headers()
+
+    def _send_server_error(self):
+        # The details (SQL, connection info) go to the log, not the client.
+        traceback.print_exc()
+        self._send_json(500, {"error": "Sunucu hatası."})
+
     def _send_json(self, status, payload, cookie=None):
         # default=str: createdAt comes back from Postgres as a datetime.
         body = json.dumps(payload, default=str).encode("utf-8")
@@ -792,10 +840,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_body(self):
         length = int(self.headers.get("Content-Length", 0) or 0)
-        return json.loads(self.rfile.read(length) or b"{}")
+        if length < 0 or length > MAX_BODY_BYTES:
+            raise ValueError("Geçersiz istek boyutu.")
+        body = json.loads(self.rfile.read(length) or b"{}")
+        if not isinstance(body, dict):
+            raise ValueError("Geçersiz istek.")
+        return body
 
-    def _current_user(self):
-        token = self._get_cookie(SESSION_COOKIE_NAME)
+    def _current_user(self, token):
         if not token:
             return None
         with db() as conn:
@@ -818,8 +870,8 @@ class Handler(BaseHTTPRequestHandler):
             _record_login_failure(ip)
             self._send_json(401, {"error": str(exc)})
             return
-        except Exception as exc:
-            self._send_json(500, {"error": str(exc)})
+        except Exception:
+            self._send_server_error()
             return
         _clear_login_failures(ip)
         self._send_json(200, user, cookie=_build_session_cookie(token))
@@ -890,7 +942,8 @@ class Handler(BaseHTTPRequestHandler):
                 return True
 
             roles, handler = entry
-            user = self._current_user()
+            token = self._get_cookie(SESSION_COOKIE_NAME)
+            user = self._current_user(token)
             if user is None:
                 self._send_json(401, {"error": "Oturum açılmamış."})
                 return True
@@ -907,14 +960,14 @@ class Handler(BaseHTTPRequestHandler):
                     return True
 
             try:
-                status, payload = handler(_Ctx(m, body, user))
+                status, payload = handler(_Ctx(m, body, user, token))
                 self._send_json(status, payload)
             except LookupError as exc:
                 self._send_json(404, {"error": str(exc)})
             except (ValueError, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})
-            except Exception as exc:  # noqa: BLE001 - surface everything as 500
-                self._send_json(500, {"error": str(exc)})
+            except Exception:  # noqa: BLE001 - surface everything as 500
+                self._send_server_error()
             return True
         return False
 
