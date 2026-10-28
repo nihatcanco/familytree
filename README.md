@@ -148,3 +148,7 @@ Jenkinsfile             build, test, deploy pipeline (Windows agent, Docker Desk
 sync-db-password.sql    re-applies the db password from the Jenkins credential on deploy
 DEPLOY.md               server + Jenkins setup
 ```
+
+## License
+
+[MIT](LICENSE)

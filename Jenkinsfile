@@ -1,7 +1,7 @@
 // CI/CD for the family-tree app on a Windows Jenkins agent running Docker
 // Desktop (Linux containers).
 //
-//   GitHub (private)  --clone via SSH deploy key-->  Jenkins
+//   GitHub (public)   --clone over HTTPS-->          Jenkins
 //   Jenkins           --docker build, test in a throwaway Postgres container-->
 //   Jenkins           --docker compose up-->         "familytree" project:
 //                                                      app (server.py :8000) + db (postgres:18)

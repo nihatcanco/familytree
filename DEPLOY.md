@@ -3,8 +3,8 @@
 Target architecture:
 
 ```
-GitHub (private repo)
-      │  clone over SSH (deploy key)
+GitHub (public repo)
+      │  clone over HTTPS
       ▼
 Jenkins (Windows agent, label 'windows')
       │  1. docker build    ──▶  familytree:test + familytree:latest
@@ -56,52 +56,28 @@ No Python, PostgreSQL install, NSSM or web server (Apache/IIS) is needed on the 
 | App + database     | Compose project `familytree`           |
 | Database files     | Docker volume `familytree_pgdata`      |
 | App logs           | `docker compose -p familytree logs app` |
-| SSH keys for clone | `C:\jenkins-keys\`                     |
 
 ---
 
-## 2. GitHub deploy key (read-only, this repo only)
+## 2. Jenkins credential
 
-On the server:
+The repository is public, so cloning needs no credential. The only secret is the
+database password:
 
-```bat
-mkdir C:\jenkins-keys
-ssh-keygen -t ed25519 -f C:\jenkins-keys\familytree_deploy -N ""
-```
+**Manage Jenkins → Credentials → System → Global credentials → Add Credentials**
 
-- GitHub → repo → **Settings → Deploy keys → Add deploy key**
-  - Title: `jenkins-windows`
-  - Key: paste the contents of `C:\jenkins-keys\familytree_deploy.pub`
-  - **Allow write access: unchecked**
-
----
-
-## 3. Jenkins credentials
-
-**Manage Jenkins → Credentials → System → Global credentials → Add Credentials**, twice:
-
-1. Clone key
-   - Kind: **SSH Username with private key**
-   - ID: `familytree-deploy-key`
-   - Username: `git`
-   - Private Key: **Enter directly** → paste contents of `C:\jenkins-keys\familytree_deploy` (no `.pub`)
-2. Database password
-   - Kind: **Secret text**
-   - ID: `familytree-postgres-password`
-   - Secret: an **alphanumeric** password (it is embedded in the connection URL as-is)
+- Kind: **Secret text**
+- ID: `familytree-postgres-password`
+- Secret: an **alphanumeric** password (it is embedded in the connection URL as-is)
 
 Postgres only applies the password when the `familytree_pgdata` volume is first
 created, so every deploy re-applies the credential to the `familytree` role
 (`sync-db-password.sql`). To change the password, just update the credential and run
 a build.
 
-**Manage Jenkins → Security → Git Host Key Verification Configuration** → **Accept first connection**
-(otherwise the first clone fails on an unknown `github.com` host key, because the
-service account has no `known_hosts`).
-
 ---
 
-## 4. Port and firewall
+## 3. Port and firewall
 
 The app container publishes **port 8000** on every interface; that is the only host
 port this stack uses (the database has no published port, and the test containers
@@ -129,15 +105,15 @@ New-NetFirewallRule -DisplayName "familytree HTTP" -Direction Inbound -Protocol 
 
 ---
 
-## 5. The Jenkins pipeline job
+## 4. The Jenkins pipeline job
 
 **New Item → Pipeline**, name `familytree-deploy`.
 
 - **Pipeline** section:
   - Definition: **Pipeline script from SCM**
   - SCM: **Git**
-  - Repository URL: `git@github.com:nihatcanco/familytree.git`  *(SSH form, not https)*
-  - Credentials: `git (familytree-deploy-key)`
+  - Repository URL: `https://github.com/nihatcanco/familytree.git`
+  - Credentials: **- none -**
   - Branches to build: `*/main`
   - Script Path: `Jenkinsfile`
 - Save. The `Jenkinsfile` in the repo declares its own trigger (`pollSCM` every ~3 min).
@@ -161,7 +137,7 @@ account exists.
 
 ---
 
-## 6. Optional: webhook instead of polling
+## 5. Optional: webhook instead of polling
 
 If the Jenkins box is reachable from GitHub:
 
