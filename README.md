@@ -6,6 +6,10 @@ so every edit made in the browser is written straight to the database. The UI is
 in English, and names, places and notes can use any characters, including Turkish
 ones (`ç ğ ı İ ö ş ü`).
 
+![The tree with one person selected: their bloodline is highlighted in generation colours, with the details panel, search and minimap on the right](docs/screenshot.png)
+
+*The screenshot uses the made-up family from the test suite.*
+
 ## Features
 
 - **Pan / zoom canvas** — drag to pan, Ctrl/⌘ + wheel or trackpad pinch to zoom, two-finger pinch and double-tap on touch devices.
@@ -57,13 +61,15 @@ Pass a different port if 8000 is taken: `python3 server.py 8080`.
 ### Tests
 
 ```bash
+.venv/bin/pip install -r requirements-dev.txt && .venv/bin/playwright install chromium
 docker compose -f docker-compose.test.yml up -d
-python3 tests/test_api.py   # API integration test
-python3 tests/test_ui.py    # browser smoke test (needs playwright)
+.venv/bin/python tests/test_api.py   # API integration test
+.venv/bin/python tests/test_ui.py    # browser smoke test (Chromium via Playwright)
 ```
 
 Both reset the database at `TEST_DATABASE_URL` (default: the docker-compose one on
-`:5433`), so never point that at real data.
+`:5433`), so never point that at real data. GitHub Actions runs both on every push
+to `main` and every pull request (`.github/workflows/tests.yml`).
 
 ## Deployment
 
@@ -75,6 +81,9 @@ job setup. To run that same stack locally:
 ```bash
 POSTGRES_PASSWORD=devpass docker compose up -d --build   # then open http://localhost:8000
 ```
+
+Settings such as the host port and bind address are Jenkins environment variables,
+listed in [DEPLOY.md](DEPLOY.md#3-settings).
 
 ## Login & accounts
 
@@ -95,7 +104,7 @@ Any logged-in user can change their own password (key icon, top right — needs 
 
 What the server does:
 
-- **Passwords** are stored as salted PBKDF2-SHA256 hashes. Login attempts are rate-limited per client IP (8 failures per 5 minutes), and a wrong username costs the same time as a wrong password.
+- **Passwords** are stored as salted PBKDF2-SHA256 hashes. Login attempts are rate-limited per client IP (8 failures per 5 minutes, counted before the password is checked, so a burst of parallel requests can't get past it), and a wrong username costs the same time as a wrong password.
 - **Sessions** are random tokens in the `Sessions` table, sent as an `HttpOnly`, `SameSite=Strict` cookie, valid for 7 days. Logout, deleting a user and changing a password revoke them server-side. `SameSite=Strict` is the CSRF defense.
 - **Authorization** is checked per route against the role stored in the database, so a role change applies to existing sessions immediately.
 - **SQL** is always parameterised.
@@ -103,12 +112,13 @@ What the server does:
 - **Responses** carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`. Request bodies over 1 MB are refused, and internal errors return a generic message (details go to the server log).
 - The frontend escapes all user-entered data before inserting it into the page.
 
-What it doesn't do: `server.py` only speaks **plain HTTP**. The current deployment
-serves it that way on port 8000, which means passwords and session cookies cross
-the network unencrypted — acceptable on a trusted LAN, not on the open internet.
-For internet exposure, put an HTTPS reverse proxy (Caddy, nginx, …) in front of it
-and set `FAMILYTREE_SECURE_COOKIES=1`. Behind a proxy or Docker's port forwarding,
-the login rate limit may see every client as the same IP.
+What it doesn't do: `server.py` only speaks **plain HTTP**, so as deployed by
+default, passwords and session cookies cross the network unencrypted — acceptable
+on a trusted LAN, not on the open internet. For internet exposure, put an HTTPS
+reverse proxy (Caddy, nginx, …) in front of it and set `FAMILYTREE_SECURE_COOKIES=1`
+(see [DEPLOY.md](DEPLOY.md#5-https-and-internet-exposure)). Behind a proxy or
+Docker's port forwarding, the login rate limit may see every client as the same
+IP — then 8 wrong guesses from anyone lock everyone out for up to 5 minutes.
 
 ## Phone & tablet
 
@@ -136,6 +146,8 @@ js/tour.js              guided overlay tutorial (first login + the "?" button)
 js/app.js               everything interactive (render pipeline, connectors, focus,
                         search, minimap, details panel, auth, admin panel)
 tests/                  test_api.py (API integration), test_ui.py (browser smoke test)
+requirements-dev.txt    runtime deps + Playwright, for the tests
+.github/workflows/      GitHub Actions: runs both test suites
 Dockerfile              base / test / app image targets
 docker-compose.yml      production stack: app + postgres:18
 docker-compose.test.yml scratch Postgres for the tests (:5433)
@@ -146,4 +158,5 @@ DEPLOY.md               server + Jenkins setup
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The bundled Lucide icons and the Tailwind-derived base CSS keep
+their own licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

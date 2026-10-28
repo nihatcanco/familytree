@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -230,6 +231,19 @@ def main():
         s, _ = c.req("GET", "/api/me")
         check("session invalid after logout -> 401", s == 401, s)
 
+        # --- login rate limit holds against a parallel burst ---
+        # Attempts are counted before the password check, so 20 simultaneous
+        # wrong guesses from one IP can't all be evaluated. Leaves 127.0.0.1
+        # locked out, so nothing below may log in.
+        def bad_login(i):
+            return Client(port).req("POST", "/api/login", {"username": "admin", "password": f"wrong{i}"})[0]
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            statuses = list(pool.map(bad_login, range(20)))
+        check("parallel login burst capped by the rate limit",
+              statuses.count(401) <= 8 and statuses.count(429) >= 12, statuses)
+        s, _ = Client(port).req("POST", "/api/login", {"username": "admin", "password": "testpass123"})
+        check("locked-out IP refused even with the right password -> 429", s == 429, s)
+
         # --- static ---
         s, body = c.req("GET", "/index.html")
         check("static index.html served", s == 200, s)
@@ -253,9 +267,9 @@ def main():
         check("path traversal blocked", s in (403, 404), s)
         s, body = c.req("GET", "/robots.txt")
         check("robots.txt served", s == 200 and b"Disallow" in body, s)
-        # the background texture is vendored so the app works with no internet
-        s, body = c.req("GET", "/css/cubes.png")
-        check("css/cubes.png served locally", s == 200 and body[:4] == b"\x89PNG", s)
+        # the background texture is served locally so the app works with no internet
+        s, body = c.req("GET", "/css/cubes.svg")
+        check("css/cubes.svg served locally", s == 200 and body.startswith(b"<svg"), s)
         # allowlist, not just traversal blocking: files that genuinely sit
         # under ROOT (server.py, schema.sql) must still be unreachable
         s, d = c.req("GET", "/server.py")

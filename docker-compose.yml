@@ -1,6 +1,6 @@
-# Production stack: the app + its PostgreSQL, run by Jenkins on the Windows
-# box (Docker Desktop). The app is served directly on port 8000 (APP_PORT),
-# plain HTTP, with no reverse proxy in front of it.
+# Production stack: the app + its PostgreSQL, deployed by the Jenkinsfile (see
+# DEPLOY.md). The app serves plain HTTP on host port APP_PORT; put an HTTPS
+# reverse proxy in front of it for anything beyond a trusted LAN.
 #
 # Needs POSTGRES_PASSWORD in the environment (Jenkins injects it from the
 # 'familytree-postgres-password' credential). Keep it alphanumeric: it is
@@ -8,9 +8,11 @@
 # the pgdata volume is first created; the Jenkins Deploy stage re-applies it
 # to the role on every deploy (sync-db-password.sql).
 #
+# Optional: APP_PORT (default 8000), APP_BIND (default: every interface),
+# FAMILYTREE_SECURE_COOKIES, FAMILYTREE_ADMIN_USERNAME / _PASSWORD.
+#
 # Manual use (from the repo dir):
-#   set POSTGRES_PASSWORD=...
-#   docker compose -p familytree up -d
+#   POSTGRES_PASSWORD=... docker compose up -d --build
 name: familytree
 
 services:
@@ -41,16 +43,18 @@ services:
         condition: service_healthy
     environment:
       FAMILYTREE_DATABASE_URL: postgresql://familytree:${POSTGRES_PASSWORD}@db/familytree
-      # Served over plain HTTP, so the session cookie can't be Secure (logins
-      # wouldn't stick). Set to 1 only if HTTPS is put in front of it again.
+      # Plain HTTP by default, so the session cookie can't be Secure (logins
+      # wouldn't stick). Set to 1 once an HTTPS proxy is in front of it.
       FAMILYTREE_SECURE_COOKIES: ${FAMILYTREE_SECURE_COOKIES:-0}
       # Only read when no account exists yet (first start on an empty db).
       FAMILYTREE_ADMIN_USERNAME: ${FAMILYTREE_ADMIN_USERNAME:-admin}
       FAMILYTREE_ADMIN_PASSWORD: ${FAMILYTREE_ADMIN_PASSWORD:-}
     ports:
-      # Host port APP_PORT (default 8000) on every interface -> server.py's
-      # 8000 in the container. Jenkins sets APP_PORT and smoke-checks it.
-      - "${APP_PORT:-8000}:8000"
+      # Host port APP_PORT (default 8000) -> server.py's 8000 in the container,
+      # on every interface, or only on APP_BIND when that is set (e.g. 127.0.0.1
+      # behind a reverse proxy on the same machine). Jenkins sets both and
+      # smoke-checks the result.
+      - "${APP_BIND:+${APP_BIND}:}${APP_PORT:-8000}:8000"
 
 volumes:
   pgdata:

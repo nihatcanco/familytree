@@ -1,17 +1,16 @@
 -- PostgreSQL schema for the family tree app.
 --
 -- server.py runs this on every startup (ensure_schema()), so every statement is
--- IF NOT EXISTS / idempotent. The one-time data load from the old data.sqlite is
--- migrate_sqlite_to_pg.py.
+-- IF NOT EXISTS / idempotent.
 --
--- Identifiers are all lowercase: PostgreSQL folds unquoted names to lowercase,
--- so the old camelCase columns (passwordHash, spouse1Id, ...) become
--- passwordhash, spouse1id, ... -- server.py reads them at that spelling.
+-- Identifiers are all lowercase. server.py's SQL spells them in camelCase
+-- (passwordHash, spouse1Id, ...), which PostgreSQL folds to lowercase, so the
+-- rows it gets back are keyed passwordhash, spouse1id, ... and it reads them
+-- at that spelling.
 --
 -- id columns:
 --   people / spouses / parents  -- plain integer PK; server.py's _next_id()
---     (SELECT MAX(id)+1, serialised on a process-wide write lock) assigns them,
---     carried over from the original MySQL-style "id INT AUTO_INCREMENT" DDL.
+--     (SELECT MAX(id)+1, serialised on a process-wide write lock) assigns them.
 --   roots / rootmembers / users -- real IDENTITY columns; their inserts use
 --     RETURNING id.
 
@@ -20,7 +19,7 @@ CREATE TABLE IF NOT EXISTS people (
     name        text NOT NULL,
     surname     text,
     gender      integer DEFAULT 0,   -- 0: unknown, 1: male, 2: female
-    birthdate   text,                -- kept as text: values from SQLite are free-form / partial
+    birthdate   text,                -- text, not date: values are free-form / partial
     birthplace  text,
     note        text,
     dateofdeath text
@@ -64,7 +63,7 @@ CREATE TABLE IF NOT EXISTS users (
     createdat    timestamptz NOT NULL DEFAULT now()
 );
 
--- Case-insensitive uniqueness on username (replaces SQLite's COLLATE NOCASE).
+-- Case-insensitive uniqueness on username.
 -- server.py matches with lower(username) = lower(%s).
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower ON users (lower(username));
 

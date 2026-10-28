@@ -39,13 +39,15 @@ ROOT = Path(__file__).resolve().parent
 SCHEMA_SQL = ROOT / "schema.sql"
 DATABASE_URL = os.environ.get("FAMILYTREE_DATABASE_URL", "postgresql:///familytree")
 
-# Console output is UTF-8 (the first-run message is Turkish). On Windows the
-# console defaults to a legacy code page (cp1252) that can't encode it, which
+# Console output is UTF-8: on Windows the console defaults to a legacy code
+# page (cp1252), and printing anything outside it (a non-ASCII admin username)
 # would crash on startup, so force UTF-8 and never let an unencodable glyph kill
-# the process.
+# the process. Line-buffered, because stdout is block-buffered when it isn't a
+# terminal (a service's log file): the one-time admin password printed on first
+# start would otherwise sit unseen in the buffer.
 for _stream in (sys.stdout, sys.stderr):
     try:
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+        _stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     except (AttributeError, ValueError):
         pass
 
@@ -67,8 +69,9 @@ EDIT_ROLES = {"admin", "editor"}
 ADMIN_ONLY = {"admin"}
 PBKDF2_ITERATIONS = 260_000
 
-# ip -> [timestamps of recent failed login attempts], guarded by _login_lock.
-_login_failures = {}
+# ip -> [timestamps of recent failed or still-running login attempts], guarded
+# by _login_lock.
+_login_attempts = {}
 _login_lock = threading.Lock()
 LOGIN_MAX_ATTEMPTS = 8
 LOGIN_WINDOW_SECONDS = 300
@@ -145,8 +148,7 @@ def db(write=False):
 
 
 def ensure_schema():
-    """Apply schema.sql (idempotent -- every statement is IF NOT EXISTS) and
-    clean up any dangling link rows.
+    """Apply schema.sql (idempotent -- every statement is IF NOT EXISTS).
 
     A root is a standalone family-origin marker (a diamond in the UI): it has
     an editable title and an integer generation, and every descendant
@@ -154,21 +156,6 @@ def ensure_schema():
     """
     with db(write=True) as conn:
         conn.execute(SCHEMA_SQL.read_text())
-
-        # Purge link rows that reference people who no longer exist. Postgres
-        # enforces the FKs now, so this only ever matters for data seeded from
-        # the old pre-enforcement SQLite file; left in place they render as
-        # dangling half-edges in the UI.
-        for sql, label in (
-            ("DELETE FROM Parents WHERE childId NOT IN (SELECT id FROM People)", "Parents (child)"),
-            ("DELETE FROM Parents WHERE parent1Id NOT IN (SELECT id FROM People)", "Parents (parent1)"),
-            ("DELETE FROM Parents WHERE parent2Id IS NOT NULL AND parent2Id NOT IN (SELECT id FROM People)", "Parents (parent2)"),
-            ("DELETE FROM Spouses WHERE spouse1Id NOT IN (SELECT id FROM People) OR spouse2Id NOT IN (SELECT id FROM People)", "Spouses"),
-            ("DELETE FROM RootMembers WHERE personId NOT IN (SELECT id FROM People) OR rootId NOT IN (SELECT id FROM Roots)", "RootMembers"),
-        ):
-            removed = conn.execute(sql).rowcount
-            if removed:
-                print(f"  cleanup: removed {removed} dangling {label} link(s)")
 
 
 def hash_password(password):
@@ -217,28 +204,36 @@ def ensure_initial_admin():
         print("=" * 64)
 
 
-def _check_rate_limit(ip):
+def _reserve_login_attempt(ip):
+    """Count a login attempt against ip *before* its password is checked and
+    return its slot, or None if ip is already at the limit. Recording only
+    after a failure would let a burst of parallel requests all pass the check
+    before any of them was counted. The caller hands the slot back
+    (_release_login_attempt) unless the attempt was a wrong password."""
     now = time.time()
     with _login_lock:
         # Drop IPs whose whole window has aged out, so the map can't grow
         # without bound over a long-running process.
-        for stale in [k for k, v in _login_failures.items()
+        for stale in [k for k, v in _login_attempts.items()
                       if not v or now - v[-1] >= LOGIN_WINDOW_SECONDS]:
             if stale != ip:
-                del _login_failures[stale]
-        attempts = [t for t in _login_failures.get(ip, []) if now - t < LOGIN_WINDOW_SECONDS]
-        _login_failures[ip] = attempts
-        return len(attempts) < LOGIN_MAX_ATTEMPTS
+                del _login_attempts[stale]
+        attempts = [t for t in _login_attempts.get(ip, []) if now - t < LOGIN_WINDOW_SECONDS]
+        _login_attempts[ip] = attempts
+        if len(attempts) >= LOGIN_MAX_ATTEMPTS:
+            return None
+        attempts.append(now)
+        return now
 
 
-def _record_login_failure(ip):
+def _release_login_attempt(ip, slot):
+    # Only this attempt's own slot: a successful login doesn't wipe the
+    # failures before it, or interleaving logins to a known account would
+    # reset the limit.
     with _login_lock:
-        _login_failures.setdefault(ip, []).append(time.time())
-
-
-def _clear_login_failures(ip):
-    with _login_lock:
-        _login_failures.pop(ip, None)
+        attempts = _login_attempts.get(ip)
+        if attempts and slot in attempts:
+            attempts.remove(slot)
 
 
 def create_session(conn, user_id):
@@ -279,13 +274,17 @@ def revoke_sessions(conn, user_id, keep_token=None):
 
 def login(username, password):
     username = str(username or "").strip()
-    with db(write=True) as conn:
+    # No write lock (a session row needs no _next_id()), and no pooled
+    # connection held during the deliberately slow PBKDF2 check: otherwise a
+    # stream of login attempts would stall every edit and drain the pool.
+    with db() as conn:
         row = conn.execute("SELECT * FROM Users WHERE lower(username) = lower(%s)", (username,)).fetchone()
-        stored = row["passwordhash"] if row else _DUMMY_PASSWORD_HASH
-        if not verify_password(password or "", stored) or row is None:
-            raise ValueError("Incorrect username or password.")
+    stored = row["passwordhash"] if row else _DUMMY_PASSWORD_HASH
+    if not verify_password(str(password or ""), stored) or row is None:
+        raise ValueError("Incorrect username or password.")
+    with db() as conn:
         token = create_session(conn, row["id"])
-        return token, _user_public(row)
+    return token, _user_public(row)
 
 
 def change_own_password(user_id, current_password, new_password, keep_token=None):
@@ -460,11 +459,10 @@ def _ancestor_ids(conn, person_id):
 
 
 def _next_id(conn, table):
-    # These tables declare "id INT AUTO_INCREMENT" (MySQL-style DDL), which
-    # SQLite does NOT treat as a rowid-alias (only the exact type "INTEGER"
-    # gets that treatment) -- so ids are never assigned automatically and
-    # must be computed explicitly on every insert. The _write_lock held by
-    # db(write=True) makes the compute-then-insert safe across threads.
+    # People / Spouses / Parents ids are plain integer PKs with no identity or
+    # sequence (see schema.sql), so every insert computes the next one itself.
+    # The _write_lock held by db(write=True) makes the compute-then-insert safe
+    # across threads.
     row = conn.execute(f"SELECT MAX(id) AS max_id FROM {table}").fetchone()
     return (row["max_id"] or 0) + 1
 
@@ -857,24 +855,27 @@ class Handler(BaseHTTPRequestHandler):
     # -- auth endpoints (special-cased: no session required) -------------
     def _handle_login(self):
         ip = self.client_address[0]
-        if not _check_rate_limit(ip):
+        slot = _reserve_login_attempt(ip)
+        if slot is None:
             self._send_json(429, {"error": "Too many failed attempts. Please try again in a few minutes."})
             return
         try:
             body = self._read_body()
         except (json.JSONDecodeError, ValueError):
+            _release_login_attempt(ip, slot)
             self._send_json(400, {"error": "Invalid request."})
             return
         try:
             token, user = login(body.get("username"), body.get("password"))
         except ValueError as exc:
-            _record_login_failure(ip)
+            # A wrong password keeps its slot: that's what the limit counts.
             self._send_json(401, {"error": str(exc)})
             return
         except Exception:
+            _release_login_attempt(ip, slot)
             self._send_server_error()
             return
-        _clear_login_failures(ip)
+        _release_login_attempt(ip, slot)
         self._send_json(200, user, cookie=_build_session_cookie(token))
 
     def _handle_logout(self):
@@ -1011,6 +1012,14 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write(f"{self.address_string()} - {format_str % args}\n")
 
 
+class Server(ThreadingHTTPServer):
+    # socketserver's default listen backlog is 5. Every request opens its own
+    # connection (HTTP/1.0) and one page load fetches a dozen files, so a burst
+    # of connections could be refused (reset on macOS, SYN-retry delays on
+    # Linux) before the accept loop catches up.
+    request_queue_size = 128
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     try:
@@ -1026,7 +1035,7 @@ def main():
     ensure_initial_admin()
 
     host = os.environ.get("FAMILYTREE_HOST", "127.0.0.1")
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = Server((host, port), Handler)
     print(f"Family tree server running at http://{host}:{port}")
     try:
         server.serve_forever()

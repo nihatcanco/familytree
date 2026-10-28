@@ -1,0 +1,41 @@
+# Runs both test suites on every push to main and every pull request.
+# Deploys stay on the self-hosted Jenkins (see Jenkinsfile); this only tests,
+# with a read-only token and no secrets, so fork pull requests are safe to run.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      # Same instance docker-compose.test.yml starts locally; the tests'
+      # default TEST_DATABASE_URL points at it.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: familytree
+          POSTGRES_PASSWORD: familytree
+          POSTGRES_DB: familytree_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U familytree -d familytree_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: python tests/test_api.py
+      - run: python tests/test_ui.py

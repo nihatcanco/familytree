@@ -6,8 +6,10 @@ __pycache__/
 .venv/
 .venv-test/
 
-# Old SQLite database — replaced by PostgreSQL, keep stale copies out
-data.sqlite
+# Database files and backups hold real family data — never commit them
+*.sqlite
+*.sqlite3
+*.dump
 
 # macOS
 .DS_Store

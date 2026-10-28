@@ -11,6 +11,9 @@
    scale, etc.). Everything else — the tidy-tree layout rules, the family-root
    diamond, and the dark theme — is the same CSS that used to live in the
    <style> block in index.html.
+
+   Preflight and the utility values are adapted from Tailwind CSS (MIT, see
+   THIRD_PARTY_NOTICES.md).
    ============================================================================ */
 
 :root {
@@ -249,7 +252,7 @@ img, video { max-width: 100%; height: auto; }
 .bg-black\/40 { background-color: rgb(0 0 0 / 0.4); }
 /* Served from css/ like the rest of the bundle, so the app needs no internet. */
 .bg-cubes {
-    background-image: url('cubes.png');
+    background-image: url('cubes.svg');
 }
 
 .border-slate-100 { border-color: #f1f5f9; }
@@ -436,7 +439,7 @@ html.dark body {
     background-color: #0f172a;
     background-image:
         linear-gradient(rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.8)),
-        url('cubes.png');
+        url('cubes.svg');
 }
 
 html.dark .bg-white { background-color: #1e293b; }

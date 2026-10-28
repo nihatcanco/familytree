@@ -1,6 +1,5 @@
-# Family-tree app image. Linux container (Docker Desktop / WSL2 on the
-# Windows Jenkins box). PostgreSQL runs as its own container, see
-# docker-compose.yml.
+# Family-tree app image (a Linux container). PostgreSQL runs as its own
+# container, see docker-compose.yml.
 #
 #   base  - runtime deps + the app files server.py serves
 #   test  - base + tests/, runs the API integration test (Jenkins 'Test' stage)

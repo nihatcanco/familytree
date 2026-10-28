@@ -1,18 +1,25 @@
 // CI/CD for the family-tree app on a Windows Jenkins agent running Docker
 // Desktop (Linux containers).
 //
-//   GitHub (public)   --clone over HTTPS-->          Jenkins
+//   Git repo          --clone-->                     Jenkins
 //   Jenkins           --docker build, test in a throwaway Postgres container-->
 //   Jenkins           --docker compose up-->         "familytree" project:
 //                                                      app (server.py :8000) + db (postgres:18)
-//   Browsers          --plain HTTP-->                 host port 8000 -> app container :8000
+//   Browsers          --plain HTTP-->                 host port APP_PORT -> app container :8000
 //
 // The live database is the db service in docker-compose.yml, on the named
 // volume familytree_pgdata; deploys only replace the app container. server.py
 // creates its schema on startup. See DEPLOY.md for the server and job setup.
+//
+// Site-specific settings (agent label, host port, bind address) come from
+// Jenkins environment variables, so they stay out of the repo: set them under
+// Manage Jenkins -> System -> Global properties. Each has a default below.
 
 pipeline {
-  agent { label 'windows' }
+  // FAMILYTREE_AGENT_LABEL: a Windows agent with Docker Desktop (the steps use
+  // bat/powershell). Only a global property works here: the agent's own node
+  // properties aren't known until the agent has been picked.
+  agent { label "${env.FAMILYTREE_AGENT_LABEL ?: 'windows'}" }
 
   options {
     timestamps()
@@ -28,10 +35,15 @@ pipeline {
 
   environment {
     // Compose project name: fixes container/volume names (familytree_pgdata)
-    // no matter which workspace directory the build runs in.
+    // no matter which workspace directory the build runs in. Not a setting:
+    // renaming it on a live deployment would start on a new, empty database.
     COMPOSE_PROJECT_NAME = 'familytree'
-    // Public host port the site is served on (docker-compose.yml maps it to 8000).
-    APP_PORT = '8000'
+    // Read by docker-compose.yml. FAMILYTREE_APP_PORT: host port the site is
+    // published on (the container listens on 8000). FAMILYTREE_APP_BIND: host
+    // address to publish it on, e.g. 127.0.0.1 behind a reverse proxy on the
+    // same machine; empty means every interface.
+    APP_PORT = "${env.FAMILYTREE_APP_PORT ?: '8000'}"
+    APP_BIND = "${env.FAMILYTREE_APP_BIND ?: ''}"
     // Secret text credential; docker-compose.yml refuses to start without it.
     POSTGRES_PASSWORD = credentials('familytree-postgres-password')
     // Per-build names for the Test stage's throwaway database.
@@ -142,8 +154,8 @@ pipeline {
       // and recreates app on the freshly built familytree:latest. --wait blocks
       // until both report healthy, or fails the stage.
       steps {
-        // Other apps share this box: refuse to deploy if anything but our own
-        // app container is already listening on APP_PORT, and name the culprit.
+        // Refuse to deploy if anything but our own app container is already
+        // listening on APP_PORT, and name the culprit.
         powershell '''
           $port = [int]$env:APP_PORT
           $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
@@ -156,7 +168,7 @@ pipeline {
           $listeners | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object {
             Get-Process -Id $_ -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, Path -AutoSize | Out-String | Write-Host
           }
-          Write-Host "pick a free port for APP_PORT in the Jenkinsfile (and the default in docker-compose.yml)."
+          Write-Host "set FAMILYTREE_APP_PORT in Jenkins to a free port (see DEPLOY.md)."
           exit 1
         '''
         // db first, then align its role password with the credential (it
@@ -176,9 +188,22 @@ pipeline {
     }
 
     stage('Smoke check') {
-      // Through the public host port (APP_PORT), not just the container healthcheck.
+      // Through the published host port (APP_PORT on APP_BIND), not just the
+      // container healthcheck.
       steps {
-        bat 'powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 10;$i++){ try { if((Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:%APP_PORT%/).StatusCode -eq 200){$ok=$true;break} } catch {} ; Start-Sleep 2 }; if(-not $ok){ docker compose logs --tail 30 app; exit 1 }"'
+        powershell '''
+          $hostIp = if ([string]::IsNullOrEmpty($env:APP_BIND) -or $env:APP_BIND -eq '0.0.0.0') { '127.0.0.1' } else { $env:APP_BIND }
+          $url = "http://$($hostIp):$($env:APP_PORT)/"
+          for ($i = 0; $i -lt 10; $i++) {
+            try {
+              if ((Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 $url).StatusCode -eq 200) { Write-Host "$url is up"; exit 0 }
+            } catch {}
+            Start-Sleep 2
+          }
+          Write-Host "$url did not answer"
+          docker compose logs --tail 30 app
+          exit 1
+        '''
       }
     }
   }

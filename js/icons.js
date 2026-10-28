@@ -1,6 +1,7 @@
 // Local, dependency-free replacement for the Lucide CDN script. Only the
 // ~two dozen icons this app actually uses are bundled here, copied verbatim
-// from lucide-static v1.41.0 (ISC licensed). createIcons() mirrors the CDN
+// from lucide-static v1.41.0 (ISC licensed, some shapes MIT via Feather; see
+// THIRD_PARTY_NOTICES.md). createIcons() mirrors the CDN
 // API: it swaps every <i data-lucide="name"> (or any element carrying the
 // attribute) for an inline <svg>, preserving the element's classes so the
 // existing `w-4 h-4` sizing utilities keep working.
