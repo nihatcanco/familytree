@@ -111,9 +111,10 @@ pipeline {
     }
 
     stage('Test') {
-      // API integration test, run inside the test image against a throwaway
-      // postgres:18 container (tmpfs, own network) that only lives for this
-      // stage. pg_fixture resets and seeds it; the live db is never touched.
+      // Both test suites (API integration, then the headless-Chromium browser
+      // test), run inside the test image against a throwaway postgres:18
+      // container (tmpfs, own network) that only lives for this stage.
+      // pg_fixture resets and seeds it; the live db is never touched.
       steps {
         powershell '''
           docker network create $env:TEST_NET

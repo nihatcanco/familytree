@@ -10,7 +10,8 @@ Git repository (this one or your fork)
       ▼
 Jenkins (Windows agent, label FAMILYTREE_AGENT_LABEL)
       │  1. docker build    ──▶  familytree:test + familytree:latest
-      │  2. run tests       ──▶  familytree:test against a throwaway postgres:18 container
+      │  2. run tests       ──▶  familytree:test (API + headless-browser suites) against a
+      │                          throwaway postgres:18 container
       │  3. compose up      ──▶  "familytree" project (docker-compose.yml)
       ▼
 Docker Desktop (Linux containers, WSL2)
@@ -196,6 +197,9 @@ already tests pull requests (`.github/workflows/tests.yml`).
 
 ## Notes
 
+- **Disk**: the `familytree:test` image is about 2.3 GB, as it carries headless
+  Chromium for the browser test. That layer is only rebuilt when the requirements
+  change, and each deploy prunes the previous build's untagged images.
 - **Status / logs**: `docker compose -p familytree ps` and
   `docker compose -p familytree logs -f app` (or `db`).
 - **Backups**: a scheduled `pg_dump` from inside the db container, e.g. a daily Task

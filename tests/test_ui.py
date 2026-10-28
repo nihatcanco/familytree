@@ -5,6 +5,7 @@ the main flows, and fails on any console error / page exception. Run:
     python3 tests/test_ui.py
 """
 import http.client
+import json
 import os
 import shutil
 import socket
@@ -123,10 +124,13 @@ def main():
             count_txt = page.text_content("#people-count")
             check("people count shown", "people" in (count_txt or ""), count_txt)
 
-            # build/version stamp in the sidebar footer (dev copy -> "local development")
+            # build/version stamp in the sidebar footer: "local development" for
+            # the committed version.json, "version N" once Jenkins has stamped it
+            build = json.loads((ROOT / "version.json").read_text())["build"]
+            expected = "local development" if build == "dev" else f"version {build}"
             page.wait_for_function("document.querySelector('#app-version').textContent.length > 0", timeout=3000)
             ver_txt = page.text_content("#app-version")
-            check("version stamp shown", "local development" in (ver_txt or ""), ver_txt)
+            check("version stamp shown", expected in (ver_txt or ""), (expected, ver_txt))
 
             # click a card -> details panel opens
             page.click(".tree-node-card:not(.root-node)")

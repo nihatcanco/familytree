@@ -69,7 +69,8 @@ docker compose -f docker-compose.test.yml up -d
 
 Both reset the database at `TEST_DATABASE_URL` (default: the docker-compose one on
 `:5433`), so never point that at real data. GitHub Actions runs both on every push
-to `main` and every pull request (`.github/workflows/tests.yml`).
+to `main` and every pull request (`.github/workflows/tests.yml`), and the Jenkins
+pipeline runs both in the Docker `test` image before every deploy.
 
 ## Deployment
 
